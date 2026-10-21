@@ -8,11 +8,11 @@ import sys
 from dataclasses import dataclass
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Iterable
 
 from .armazenamento import Armazenamento
 from .caminhos import resolver
-from .certificado import Certificado
+from .certificado import DadosCertificado, ler_dados
 from .config import Config
 from .nfe import monitor as mon_nfe
 from .nfe import parser as parser_nfe
@@ -80,30 +80,41 @@ class ResultadoEmpresa:
 
 
 def executar_ciclo(cfg: Config, db: Armazenamento,
-                   progresso: Callable[[str], None] | None = None) -> list[ResultadoEmpresa]:
+                   progresso: Callable[[str], None] | None = None,
+                   cnpjs: Iterable[str] | None = None, tipos: Iterable[str] | None = None,
+                   forcar: bool = False) -> list[ResultadoEmpresa]:
+    """Consulta as empresas (todas ou só `cnpjs`) e os tipos ("nfe", "nfse"; padrão: ambos).
+
+    `forcar` ignora a espera local de 1 h. A SEFAZ pode responder 656 (consumo indevido) e
+    bloquear novas consultas daquele CNPJ por 1 h — por isso a interface pede confirmação.
+    """
+    filtro = set(cnpjs) if cnpjs else None
+    empresas = [e for e in cfg.empresas if filtro is None or e.cnpj in filtro]
     with _trava_consulta():
-        return _ciclo(cfg, db, progresso or (lambda _m: None))
+        return _ciclo(cfg, db, progresso or (lambda _m: None), empresas,
+                      set(tipos or ("nfe", "nfse")), forcar)
 
 
-def _ciclo(cfg: Config, db: Armazenamento, avisar: Callable[[str], None]) -> list[ResultadoEmpresa]:
+def _ciclo(cfg: Config, db: Armazenamento, avisar: Callable[[str], None], empresas,
+           tipos: set[str], forcar: bool) -> list[ResultadoEmpresa]:
     resultados = []
-    for emp in cfg.empresas:
+    for emp in empresas:
         r = ResultadoEmpresa(emp.nome)
         resultados.append(r)
         avisar(f"{emp.nome}: carregando certificado...")
         try:
-            cert = Certificado.de_pfx(emp.caminho_certificado, emp.senha)
-        except Exception as e:  # senha errada, arquivo ausente
+            cert = emp.carregar_certificado()
+        except Exception as e:  # senha errada, arquivo ausente, token desconectado
             r.erro = f"certificado: {e}"
             log.error("[%s] %s", emp.nome, r.erro)
             continue
         for ativo, nome, mod, attr in ((emp.consultar_nfe, "NF-e", mon_nfe, "nfe"),
                                        (emp.consultar_nfse, "NFS-e", mon_nfse, "nfse")):
-            if not ativo:
+            if not ativo or attr not in tipos:
                 continue
             avisar(f"{emp.nome}: consultando {nome}...")
             try:
-                n = mod.executar(cfg, emp, cert, db)
+                n = mod.executar(cfg, emp, cert, db, forcar=forcar)
                 setattr(r, attr, n)
                 log.info("[%s] %s: %d documento(s) novo(s)", emp.nome, nome, n)
             except Exception as e:
@@ -129,3 +140,84 @@ def importar_pasta(cfg: Config, db: Armazenamento, pasta: str | Path) -> int:
                 total += db.salvar(doc)
     log.info("Importados %d documento(s) novo(s) de %s", total, pasta)
     return total
+
+
+# --- certificados instalados no Windows -----------------------------------------------------
+
+def certificados_windows() -> list[DadosCertificado]:
+    """Certificados com chave privada do usuário atual (vazio fora do Windows)."""
+    if sys.platform != "win32":
+        return []
+    from cryptography import x509
+
+    from . import winstore
+    return [ler_dados(x509.load_der_x509_certificate(d)) for d in winstore.listar_der()]
+
+
+def selecionar_certificado_windows(hwnd: int = 0) -> DadosCertificado | None:
+    """Janela nativa de seleção (como no navegador). Mostra só certificados válidos com chave."""
+    from datetime import datetime, timezone
+
+    from cryptography import x509
+
+    from . import winstore
+
+    def valido(der: bytes) -> bool:
+        try:
+            return x509.load_der_x509_certificate(der).not_valid_after_utc > datetime.now(timezone.utc)
+        except ValueError:
+            return False
+
+    tp = winstore.selecionar(hwnd, filtro=valido)
+    if not tp:
+        return None
+    return ler_dados(x509.load_der_x509_certificate(winstore.obter_der(tp)))
+
+
+# --- PDF ----------------------------------------------------------------------------------
+
+@dataclass
+class ResultadoPdf:
+    gerados: int = 0
+    falhas: list[str] = None
+
+    def __post_init__(self):
+        self.falhas = self.falhas or []
+
+
+def gerar_pdfs(cfg: Config, linhas, pasta: str | Path,
+               progresso: Callable[[str], None] | None = None) -> ResultadoPdf:
+    """NF-e: DANFE gerada localmente a partir do XML completo (resumos não têm dados suficientes).
+    NFS-e: DANFSe oficial baixada do ADN com o certificado da empresa."""
+    from . import pdf
+    from .nfse.adn import baixar_danfse
+
+    avisar = progresso or (lambda _m: None)
+    destino = Path(pasta)
+    destino.mkdir(parents=True, exist_ok=True)
+    res = ResultadoPdf()
+    certs: dict[str, object] = {}
+    empresas = {e.cnpj: e for e in cfg.empresas}
+    alvo = [l for l in linhas if l["tipo"] == "completo"]
+    ignorados = len(linhas) - len(alvo)
+    for i, l in enumerate(alvo, 1):
+        avisar(f"Gerando PDF {i}/{len(alvo)}...")
+        arq = destino / f"{l['chave']}.pdf"
+        try:
+            if l["origem"] == "nfe":
+                pdf.danfe(l["xml"], arq)
+            else:
+                emp = empresas.get(l["cnpj_empresa"])
+                if emp is None:
+                    raise RuntimeError("empresa não cadastrada")
+                if emp.cnpj not in certs:
+                    certs[emp.cnpj] = emp.carregar_certificado()
+                arq.write_bytes(baixar_danfse(certs[emp.cnpj], cfg.tp_amb, l["chave"], cfg.tls))
+            res.gerados += 1
+        except Exception as e:
+            res.falhas.append(f"{l['chave']}: {e}")
+            log.warning("PDF %s: %s", l["chave"], e)
+    if ignorados:
+        res.falhas.append(f"{ignorados} resumo(s)/evento(s) ignorado(s): só notas com XML "
+                          "completo geram PDF")
+    return res

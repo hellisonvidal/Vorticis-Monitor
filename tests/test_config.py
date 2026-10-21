@@ -69,3 +69,33 @@ def test_trava_impede_consulta_simultanea(tmp_path, monkeypatch):
                 pass
     with servico._trava_consulta():  # liberada após sair
         pass
+
+
+def test_dados_do_certificado_icp_brasil():
+    from datetime import datetime, timedelta, timezone
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.x509.oid import NameOID
+
+    from monitor_notas.certificado import OID_CNPJ, ler_dados
+
+    chave = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    agora = datetime.now(timezone.utc)
+
+    def gerar(cn, san=None):
+        nome = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, cn),
+                          x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, "mg")])
+        b = (x509.CertificateBuilder().subject_name(nome).issuer_name(nome)
+             .public_key(chave.public_key()).serial_number(1)
+             .not_valid_before(agora).not_valid_after(agora + timedelta(days=1)))
+        if san:
+            b = b.add_extension(x509.SubjectAlternativeName(san), False)
+        return b.sign(chave, hashes.SHA256())
+
+    d = ler_dados(gerar("ACME COMERCIO LTDA:12345678000190"))
+    assert (d.razao_social, d.cnpj, d.uf) == ("ACME COMERCIO LTDA", "12345678000190", "MG")
+    # CNPJ só no SAN (OID ICP-Brasil 2.16.76.1.3.3, valor DER PrintableString)
+    d = ler_dados(gerar("ACME", [x509.OtherName(OID_CNPJ, b"\x13\x0e98765432000110")]))
+    assert d.cnpj == "98765432000110"

@@ -1,7 +1,6 @@
 """Chamada SOAP 1.2 com mTLS aos webservices da NF-e."""
 from __future__ import annotations
 
-import requests
 from lxml import etree
 
 from ..certificado import Certificado
@@ -16,14 +15,10 @@ def chamar(url: str, acao: str, corpo: etree._Element, cert: Certificado,
     body = etree.SubElement(env, f"{{{SOAP12}}}Body")
     body.append(corpo)
     dados = etree.tostring(env, xml_declaration=True, encoding="utf-8")
-    resp = requests.post(
-        url,
-        data=dados,
-        headers={"Content-Type": f'application/soap+xml; charset=utf-8; action="{acao}"'},
-        cert=cert.arquivos_pem(),
-        verify=verificar_tls,
-        timeout=timeout,
-    )
+    resp = cert.requisitar(
+        "POST", url, dados,
+        {"Content-Type": f'application/soap+xml; charset=utf-8; action="{acao}"'},
+        verificar_tls, timeout)
     resp.raise_for_status()
     return etree.fromstring(resp.content)
 

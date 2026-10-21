@@ -15,7 +15,6 @@ import sys
 
 from . import config as cfgmod
 from . import servico
-from .certificado import Certificado
 
 
 def main(argv=None) -> None:
@@ -55,7 +54,7 @@ def main(argv=None) -> None:
         servico.importar_pasta(cfg, db, args.pasta)
     elif args.cmd == "certificados":
         for e in cfg.empresas:
-            c = Certificado.de_pfx(e.caminho_certificado, e.senha)
+            c = e.carregar_certificado()
             print(f"{e.nome} ({e.cnpj}): {c.titular} — válido até {c.validade:%d/%m/%Y}")
     elif args.cmd == "listar":
         for r in db.listar(args.cnpj, args.limite):

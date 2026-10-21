@@ -21,10 +21,12 @@ def _agora():
     return datetime.now(timezone.utc)
 
 
-def executar(cfg: Config, emp: Empresa, cert: Certificado, db: Armazenamento) -> int:
+def executar(cfg: Config, emp: Empresa, cert: Certificado, db: Armazenamento,
+             forcar: bool = False) -> int:
     k_nsu, k_prox = f"nfse:{emp.cnpj}:ult_nsu", f"nfse:{emp.cnpj}:proxima"
     proxima = db.obter_estado(k_prox)
-    if proxima and _agora() < datetime.fromisoformat(proxima):
+    # forcar ignora a espera local; se a SEFAZ/ADN recusar (656/429), a espera volta a valer
+    if proxima and not forcar and _agora() < datetime.fromisoformat(proxima):
         log.info("[%s] NFS-e: aguardando até %s", emp.nome, proxima)
         return 0
 

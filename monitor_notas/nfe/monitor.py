@@ -24,11 +24,13 @@ def _agora() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def executar(cfg: Config, emp: Empresa, cert: Certificado, db: Armazenamento) -> int:
+def executar(cfg: Config, emp: Empresa, cert: Certificado, db: Armazenamento,
+             forcar: bool = False) -> int:
     """Baixa novos documentos via DistDFe. Retorna a quantidade de documentos novos."""
     k_nsu, k_prox = f"nfe:{emp.cnpj}:ult_nsu", f"nfe:{emp.cnpj}:proxima"
     proxima = db.obter_estado(k_prox)
-    if proxima and _agora() < datetime.fromisoformat(proxima):
+    # forcar ignora a espera local; se a SEFAZ/ADN recusar (656/429), a espera volta a valer
+    if proxima and not forcar and _agora() < datetime.fromisoformat(proxima):
         log.info("[%s] NF-e: aguardando até %s (regra de consumo da SEFAZ)", emp.nome, proxima)
         return 0
 

@@ -9,8 +9,7 @@ from __future__ import annotations
 import base64
 import gzip
 from dataclasses import dataclass, field
-
-import requests
+from urllib.parse import urlencode
 
 from ..certificado import Certificado
 
@@ -95,15 +94,11 @@ class ClienteADN:
         params = {"lote": "true"}
         if self.enviar_cnpj_consulta:
             params["cnpjConsulta"] = self.cnpj
-        resp = requests.get(
-            f"{self.base}/DFe/{ult_nsu}",
-            params=params,
-            headers={"Accept": "application/json"},
-            cert=self.cert.arquivos_pem(),
-            verify=self.verificar_tls,
-            timeout=60,
-        )
-        if resp.status_code in (429,) or resp.status_code >= 500:
+        resp = self.cert.requisitar(
+            "GET", f"{self.base}/DFe/{ult_nsu}?{urlencode(params)}",
+            cabecalhos={"Accept": "application/json"},
+            verificar_tls=self.verificar_tls)
+        if resp.status_code == 429 or resp.status_code >= 500:
             resp.raise_for_status()
         try:
             dados = resp.json()
@@ -111,3 +106,14 @@ class ClienteADN:
             resp.raise_for_status()
             raise RuntimeError(f"ADN: resposta não-JSON (HTTP {resp.status_code}): {resp.text[:300]}")
         return interpretar(resp.status_code, dados)
+
+
+def baixar_danfse(cert: Certificado, tp_amb: int, chave: str,
+                  verificar_tls: bool | str = True) -> bytes:
+    """PDF oficial da NFS-e (DANFSe) gerado pelo ADN. Endpoint /danfse/{chave} no host do ADN."""
+    base = URLS[tp_amb].rsplit("/contribuintes", 1)[0]
+    resp = cert.requisitar("GET", f"{base}/danfse/{chave}",
+                           cabecalhos={"Accept": "application/pdf"}, verificar_tls=verificar_tls)
+    if resp.status_code != 200 or not resp.content.startswith(b"%PDF"):
+        raise RuntimeError(f"DANFSe indisponível no ADN (HTTP {resp.status_code})")
+    return resp.content

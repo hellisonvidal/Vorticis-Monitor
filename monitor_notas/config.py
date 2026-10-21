@@ -24,10 +24,21 @@ class Empresa:
     nome: str
     cnpj: str
     uf: str
-    certificado: str
-    senha_armazenada: str  # como está no arquivo (dpapi:/env:/texto)
+    certificado: str = ""        # arquivo .pfx (quando não usa o repositório do Windows)
+    senha_armazenada: str = ""   # como está no arquivo (dpapi:/env:/texto)
+    thumbprint: str = ""         # impressão digital do certificado instalado no Windows
     consultar_nfe: bool = True
     consultar_nfse: bool = True
+
+    @property
+    def usa_windows(self) -> bool:
+        return bool(self.thumbprint)
+
+    def carregar_certificado(self):
+        from .certificado import Certificado
+        if self.usa_windows:
+            return Certificado.do_windows(self.thumbprint)
+        return Certificado.de_pfx(self.caminho_certificado, self.senha)
 
     @property
     def cuf(self) -> int:
@@ -47,6 +58,7 @@ class Config:
     ambiente: str = "producao"  # "producao" | "homologacao"
     banco: str = "dados/monitor.db"
     pasta_xml: str = "dados/xml"
+    pasta_exportacao: str = "exportacoes"
     intervalo_minutos: int = 60
     verificar_tls: bool | str = True
     empresas: list[Empresa] = field(default_factory=list)
@@ -62,6 +74,10 @@ class Config:
     @property
     def caminho_xml(self) -> Path:
         return resolver(self.pasta_xml)
+
+    @property
+    def caminho_exportacao(self) -> Path:
+        return resolver(self.pasta_exportacao)
 
     @property
     def tls(self) -> bool | str:
@@ -88,8 +104,9 @@ def carregar(caminho: str | Path = ARQUIVO_PADRAO) -> Config:
             nome=e.get("nome", cnpj),
             cnpj=cnpj,
             uf=e["uf"],
-            certificado=e["certificado"],
+            certificado=e.get("certificado", ""),
             senha_armazenada=e.get("senha", ""),
+            thumbprint=e.get("thumbprint", "").upper(),
             consultar_nfe=e.get("consultar_nfe", True),
             consultar_nfse=e.get("consultar_nfse", True),
         ))
@@ -97,6 +114,7 @@ def carregar(caminho: str | Path = ARQUIVO_PADRAO) -> Config:
         ambiente=geral.get("ambiente", "producao"),
         banco=geral.get("banco", "dados/monitor.db"),
         pasta_xml=geral.get("pasta_xml", "dados/xml"),
+        pasta_exportacao=geral.get("pasta_exportacao", "exportacoes"),
         intervalo_minutos=max(60, int(geral.get("intervalo_minutos", 60))),
         verificar_tls=geral.get("verificar_tls", True),
         empresas=empresas,
@@ -114,12 +132,14 @@ def _toml(v) -> str:
 
 def salvar(cfg: Config, caminho: str | Path = ARQUIVO_PADRAO) -> None:
     linhas = ["[geral]"]
-    for k in ("ambiente", "banco", "pasta_xml", "intervalo_minutos", "verificar_tls"):
+    for k in ("ambiente", "banco", "pasta_xml", "pasta_exportacao", "intervalo_minutos",
+              "verificar_tls"):
         linhas.append(f"{k} = {_toml(getattr(cfg, k))}")
     for e in cfg.empresas:
         linhas += ["", "[[empresa]]"]
         for k, v in (("nome", e.nome), ("cnpj", e.cnpj), ("uf", e.uf.upper()),
                      ("certificado", e.certificado), ("senha", e.senha_armazenada),
+                     ("thumbprint", e.thumbprint),
                      ("consultar_nfe", e.consultar_nfe), ("consultar_nfse", e.consultar_nfse)):
             linhas.append(f"{k} = {_toml(v)}")
     arq = resolver(caminho)
