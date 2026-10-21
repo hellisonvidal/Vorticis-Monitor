@@ -1,7 +1,10 @@
 """Operações de alto nível usadas pela interface gráfica e pela linha de comando."""
 from __future__ import annotations
 
+import contextlib
 import logging
+import os
+import sys
 from dataclasses import dataclass
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -39,6 +42,35 @@ def abrir_banco(cfg: Config) -> Armazenamento:
     return Armazenamento(str(cfg.caminho_banco), str(cfg.caminho_xml))
 
 
+class ConsultaEmAndamento(RuntimeError):
+    pass
+
+
+@contextlib.contextmanager
+def _trava_consulta():
+    """Impede duas consultas simultâneas (ex.: interface aberta + tarefa agendada),
+    que gastariam o limite de consumo da SEFAZ em dobro. A trava some se o processo morrer."""
+    arq = resolver("dados/consulta.lock")
+    arq.parent.mkdir(parents=True, exist_ok=True)
+    f = open(arq, "a+")
+    try:
+        try:
+            if sys.platform == "win32":
+                import msvcrt
+                f.seek(0)
+                msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            raise ConsultaEmAndamento("Já existe uma consulta em andamento (outra janela ou "
+                                      "a tarefa agendada). Tente novamente em alguns minutos.")
+        f.seek(0); f.truncate(); f.write(str(os.getpid())); f.flush()
+        yield
+    finally:
+        f.close()  # fechar o arquivo libera a trava
+
+
 @dataclass
 class ResultadoEmpresa:
     empresa: str
@@ -49,7 +81,11 @@ class ResultadoEmpresa:
 
 def executar_ciclo(cfg: Config, db: Armazenamento,
                    progresso: Callable[[str], None] | None = None) -> list[ResultadoEmpresa]:
-    avisar = progresso or (lambda _m: None)
+    with _trava_consulta():
+        return _ciclo(cfg, db, progresso or (lambda _m: None))
+
+
+def _ciclo(cfg: Config, db: Armazenamento, avisar: Callable[[str], None]) -> list[ResultadoEmpresa]:
     resultados = []
     for emp in cfg.empresas:
         r = ResultadoEmpresa(emp.nome)

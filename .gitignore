@@ -5,3 +5,6 @@ config.toml
 *.pfx
 *.p12
 .venv/
+build/
+dist/
+*.lock

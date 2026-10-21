@@ -9,6 +9,8 @@ Sem argumentos abre a interface gráfica. Com argumentos (útil no Agendador de 
 from __future__ import annotations
 
 import argparse
+import logging
+import os
 import sys
 
 from . import config as cfgmod
@@ -35,12 +37,19 @@ def main(argv=None) -> None:
     p.add_argument("--limite", type=int, default=50)
     args = ap.parse_args(argv)
 
+    # No .exe sem console (windowed) stdout/stderr são None: a saída vai só para o log
+    if sys.stdout is None:
+        sys.stdout = open(os.devnull, "w")
     servico.configurar_log(console=sys.stderr is not None)
     cfg = cfgmod.carregar(args.config)
     db = servico.abrir_banco(cfg)
 
     if args.cmd == "executar":
-        res = servico.executar_ciclo(cfg, db)
+        try:
+            res = servico.executar_ciclo(cfg, db)
+        except servico.ConsultaEmAndamento as e:
+            logging.getLogger("monitor_notas").warning("%s", e)
+            sys.exit(0)
         sys.exit(1 if any(r.erro for r in res) else 0)
     elif args.cmd == "importar":
         servico.importar_pasta(cfg, db, args.pasta)

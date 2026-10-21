@@ -1,3 +1,7 @@
+# Configuração do Monitor de NF-e / NFS-e.
+# Copie para config.toml (na mesma pasta do MonitorNotas.exe) e ajuste.
+# Caminhos relativos são relativos à pasta do MonitorNotas.exe: a pasta inteira pode ser movida.
+
 [geral]
 ambiente = "homologacao"        # "producao" quando validado
 banco = "dados/monitor.db"
@@ -10,7 +14,9 @@ nome = "Minha Empresa"
 cnpj = "00.000.000/0001-00"
 uf = "SP"
 certificado = "certificados/empresa.pfx"
-senha = "env:SENHA_CERT_EMPRESA"  # lê da variável de ambiente
+# Senha do certificado. A interface grava "dpapi:..." automaticamente: a senha fica
+# protegida pelo Windows, válida só para este usuário neste computador.
+# Também é aceito "env:NOME_DA_VARIAVEL" (lê a senha de uma variável de ambiente).
+# senha = "env:SENHA_CERT_EMPRESA"
 consultar_nfe = true
 consultar_nfse = true
-manifestar_ciencia = false      # deixe false se o Auditto já manifesta
