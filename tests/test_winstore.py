@@ -42,14 +42,11 @@ def cert_instalado(tmp_path_factory):
     pfx.write_bytes(pkcs12.serialize_key_and_certificates(
         b"cliente", chave, cert, None, serialization.BestAvailableEncryption(b"1234")))
     tp = cert.fingerprint(hashes.SHA1()).hex().upper()
-    ps = ("$p = ConvertTo-SecureString '1234' -AsPlainText -Force; "
-          f"Import-PfxCertificate -FilePath '{pfx}' -CertStoreLocation Cert:\\CurrentUser\\My "
-          "-Password $p | Out-Null")
-    subprocess.run(["powershell", "-NoProfile", "-Command", ps], check=True)
+    subprocess.run(["certutil", "-f", "-user", "-p", "1234", "-importpfx", "My", str(pfx)],
+                   check=True, capture_output=True)
     (pasta / "cliente.pem").write_bytes(cert.public_bytes(serialization.Encoding.PEM))
     yield tp, pasta
-    subprocess.run(["powershell", "-NoProfile", "-Command",
-                    f"Remove-Item Cert:\\CurrentUser\\My\\{tp} -DeleteKey -ErrorAction SilentlyContinue"])
+    subprocess.run(["certutil", "-user", "-delstore", "My", tp], capture_output=True)
 
 
 def test_lista_e_le_certificado(cert_instalado):
