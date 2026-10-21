@@ -33,6 +33,17 @@ jobs:
       - name: Gerar VorticisMonitor.exe (PyInstaller)
         run: python -m PyInstaller --noconfirm VorticisMonitor.spec
 
+      - name: Diagnostico do executavel
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          $d = New-Item -ItemType Directory -Force "diag"
+          Copy-Item dist/VorticisMonitor.exe $d
+          $p = Start-Process -FilePath "$d/VorticisMonitor.exe" -ArgumentList "diagnostico" -Wait -PassThru
+          Get-Content "$d/dados/monitor.log"
+          if ($p.ExitCode -ne 0) { throw "diagnostico falhou (codigo $($p.ExitCode))" }
+          Remove-Item $d -Recurse -Force
+
       - name: Montar pasta portatil
         shell: pwsh
         run: |

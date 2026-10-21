@@ -29,6 +29,7 @@ def main(argv=None) -> None:
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("executar")
     sub.add_parser("certificados")
+    sub.add_parser("diagnostico")  # usado no CI: confere se o .exe empacotou tudo
     p = sub.add_parser("importar")
     p.add_argument("pasta")
     p = sub.add_parser("listar")
@@ -50,6 +51,8 @@ def main(argv=None) -> None:
             logging.getLogger("monitor_notas").warning("%s", e)
             sys.exit(0)
         sys.exit(1 if any(r.erro for r in res) else 0)
+    elif args.cmd == "diagnostico":
+        sys.exit(_diagnostico())
     elif args.cmd == "importar":
         servico.importar_pasta(cfg, db, args.pasta)
     elif args.cmd == "certificados":
@@ -60,6 +63,41 @@ def main(argv=None) -> None:
         for r in db.listar(args.cnpj, args.limite):
             print(f"{r['origem']:5} {r['direcao']:9} {r['tipo']:8} {r['chave']} "
                   f"{(r['data_emissao'] or '')[:10]} {r['valor'] or '':>12} {r['emitente_nome'] or ''}")
+
+
+def _diagnostico() -> int:
+    """Importa todos os módulos, abre/fecha a janela e gera uma DANFE de exemplo. Resultado no log."""
+    log = logging.getLogger("monitor_notas")
+    falhas = 0
+    for nome in ("monitor_notas.gui", "monitor_notas.pdf", "monitor_notas.exportar", "openpyxl",
+                 "brazilfiscalreport.danfe", "lxml.etree", "requests", "cryptography"):
+        try:
+            __import__(nome)
+            log.info("diagnóstico: %s OK", nome)
+        except Exception as e:
+            falhas += 1
+            log.error("diagnóstico: %s FALHOU: %s", nome, e)
+    if sys.platform == "win32":
+        try:
+            from . import servico
+            log.info("diagnóstico: %d certificado(s) no Windows", len(servico.certificados_windows()))
+        except Exception as e:
+            falhas += 1
+            log.error("diagnóstico: winstore FALHOU: %s", e)
+    try:
+        import tkinter as tk
+
+        from .gui import App
+        raiz = tk.Tk()
+        App(raiz, cfgmod.Config())
+        raiz.update()
+        raiz.destroy()
+        log.info("diagnóstico: interface OK")
+    except Exception as e:
+        falhas += 1
+        log.error("diagnóstico: interface FALHOU: %s", e)
+    log.info("diagnóstico: %s", "OK" if not falhas else f"{falhas} falha(s)")
+    return 1 if falhas else 0
 
 
 if __name__ == "__main__":
