@@ -7,7 +7,7 @@ import openpyxl
 import pytest
 
 from monitor_notas.armazenamento import Armazenamento, Documento
-from monitor_notas.exportar import planilha, zip_xml
+from monitor_notas.exportar import planilha, xml_pasta, zip_xml
 
 CNPJ = "12345678000195"
 CHAVE_NFE = "35" * 22  # 44 dígitos
@@ -165,3 +165,19 @@ def test_zip_nomes_duplicados_recebem_sufixo(docs, tmp_path):
     primeiro = docs[0]  # consultar() ordena por data desc: aqui é o resumo
     assert primeiro["chave"] == CHAVE_RESUMO
     assert f"{CNPJ}/nfe/recebida/{CHAVE_RESUMO}-resumo-2.xml" in nomes
+
+
+def test_xml_pasta_mesma_estrutura_do_zip(docs, tmp_path):
+    destino = tmp_path / "saida"
+    duplicados = list(docs) + list(docs[:1])
+    assert xml_pasta(duplicados, destino) == 5
+    arquivos = sorted(p.relative_to(destino).as_posix() for p in destino.rglob("*.xml"))
+    assert arquivos == sorted([
+        f"{CNPJ}/nfe/recebida/{CHAVE_NFE}.xml",
+        f"{CNPJ}/nfe/recebida/{CHAVE_NFE}-evento110111.xml",
+        f"{CNPJ}/nfe/recebida/{CHAVE_RESUMO}-resumo.xml",
+        f"{CNPJ}/nfe/recebida/{CHAVE_RESUMO}-resumo-2.xml",
+        f"{CNPJ}/nfse/emitida/{CHAVE_NFSE}.xml",
+    ])
+    assert (destino / CNPJ / "nfse" / "emitida" / f"{CHAVE_NFSE}.xml").read_text(
+        encoding="utf-8") == "<CompNfse>nfse</CompNfse>"

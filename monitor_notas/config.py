@@ -60,6 +60,7 @@ class Config:
     pasta_xml: str = "dados/xml"
     pasta_exportacao: str = "exportacoes"
     intervalo_minutos: int = 60
+    consulta_automatica: bool = False  # enquanto a janela estiver aberta
     verificar_tls: bool | str = True
     empresas: list[Empresa] = field(default_factory=list)
 
@@ -116,6 +117,7 @@ def carregar(caminho: str | Path = ARQUIVO_PADRAO) -> Config:
         pasta_xml=geral.get("pasta_xml", "dados/xml"),
         pasta_exportacao=geral.get("pasta_exportacao", "exportacoes"),
         intervalo_minutos=max(60, int(geral.get("intervalo_minutos", 60))),
+        consulta_automatica=bool(geral.get("consulta_automatica", False)),
         verificar_tls=geral.get("verificar_tls", True),
         empresas=empresas,
     )
@@ -133,7 +135,7 @@ def _toml(v) -> str:
 def salvar(cfg: Config, caminho: str | Path = ARQUIVO_PADRAO) -> None:
     linhas = ["[geral]"]
     for k in ("ambiente", "banco", "pasta_xml", "pasta_exportacao", "intervalo_minutos",
-              "verificar_tls"):
+              "consulta_automatica", "verificar_tls"):
         linhas.append(f"{k} = {_toml(getattr(cfg, k))}")
     for e in cfg.empresas:
         linhas += ["", "[[empresa]]"]

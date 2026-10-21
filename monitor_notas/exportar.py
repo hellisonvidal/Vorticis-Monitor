@@ -129,22 +129,41 @@ def planilha(linhas, caminho: str) -> int:
     return len(dados)
 
 
+def _nomes_xml(linhas):
+    """Gera (caminho_relativo, linha) únicos: {cnpj}/{origem}/{direcao}/{chave}{sufixo}.xml."""
+    usados: set[str] = set()
+    for r in linhas:
+        sufixo = SUFIXOS.get(r["tipo"], f"-evento{r['evento'] or ''}")
+        base = f"{r['cnpj_empresa']}/{r['origem']}/{r['direcao']}/{r['chave']}{sufixo}"
+        nome = f"{base}.xml"
+        n = 2
+        while nome in usados:
+            nome = f"{base}-{n}.xml"
+            n += 1
+        usados.add(nome)
+        yield nome, r
+
+
 def zip_xml(linhas, caminho: str) -> int:
     """Grava um ZIP com um XML por documento em {cnpj}/{origem}/{direcao}/{chave}{sufixo}.xml.
     Retorna o número de arquivos gravados."""
     Path(caminho).parent.mkdir(parents=True, exist_ok=True)
-    usados: set[str] = set()
     total = 0
     with zipfile.ZipFile(caminho, "w", compression=zipfile.ZIP_DEFLATED) as z:
-        for r in linhas:
-            sufixo = SUFIXOS.get(r["tipo"], f"-evento{r['evento'] or ''}")
-            base = f"{r['cnpj_empresa']}/{r['origem']}/{r['direcao']}/{r['chave']}{sufixo}"
-            nome = f"{base}.xml"
-            n = 2
-            while nome in usados:
-                nome = f"{base}-{n}.xml"
-                n += 1
-            usados.add(nome)
+        for nome, r in _nomes_xml(linhas):
             z.writestr(nome, r["xml"].encode("utf-8"))
             total += 1
+    return total
+
+
+def xml_pasta(linhas, pasta) -> int:
+    """Grava cada XML como arquivo individual em `pasta`, com os mesmos caminhos relativos
+    do ZIP. Retorna o número de arquivos gravados."""
+    base = Path(pasta)
+    total = 0
+    for nome, r in _nomes_xml(linhas):
+        destino = base / nome
+        destino.parent.mkdir(parents=True, exist_ok=True)
+        destino.write_text(r["xml"], encoding="utf-8")
+        total += 1
     return total
