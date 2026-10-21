@@ -32,6 +32,19 @@ def _cert(cn, chave, ca=None, uso_cliente=False):
     b = (x509.CertificateBuilder().subject_name(nome).issuer_name(emissor)
          .public_key(chave.public_key()).serial_number(x509.random_serial_number())
          .not_valid_before(agora - timedelta(days=1)).not_valid_after(agora + timedelta(days=30)))
+    # AC precisa de BasicConstraints CA:TRUE, senão o OpenSSL rejeita a cadeia do cliente
+    eh_ac = ca is None and cn.startswith("AC ")
+    b = b.add_extension(x509.BasicConstraints(ca=eh_ac, path_length=None), critical=True)
+    # identificadores de chave: o OpenSSL 3 (modo estrito) exige AKI nos certificados emitidos
+    b = b.add_extension(x509.SubjectKeyIdentifier.from_public_key(chave.public_key()), False)
+    b = b.add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(
+        chave_assina.public_key()), False)
+    if eh_ac:
+        b = b.add_extension(x509.KeyUsage(
+            digital_signature=True, content_commitment=False, key_encipherment=False,
+            data_encipherment=False, key_agreement=False, key_cert_sign=True, crl_sign=True,
+            encipher_only=False, decipher_only=False), critical=True)
+        return b.sign(chave_assina, hashes.SHA256())
     if uso_cliente:
         b = b.add_extension(x509.ExtendedKeyUsage([x509.oid.ExtendedKeyUsageOID.CLIENT_AUTH]), False)
     else:
