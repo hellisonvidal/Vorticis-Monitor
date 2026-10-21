@@ -1,0 +1,7 @@
+__pycache__/
+dados/
+certificados/
+config.toml
+*.pfx
+*.p12
+.venv/
