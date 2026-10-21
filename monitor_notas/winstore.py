@@ -202,6 +202,11 @@ def _werro(msg: str) -> OSError:
         12044: "o servidor exigiu certificado do cliente",
         12175: "erro de segurança/TLS (certificado do servidor ou do cliente)",
         12157: "erro no canal seguro (TLS)",
+        # códigos do Schannel que o WinHTTP repassa
+        -2146893019: "certificado do servidor não confiável (raiz desconhecida)",
+        -2146893022: "nome do certificado do servidor não confere",
+        -2146893016: "certificado expirado",
+        -2146893048: "falha na negociação TLS",
     }
     return OSError(cod, f"{msg}: {conhecidos.get(cod, 'erro WinHTTP')} ({cod})")
 
