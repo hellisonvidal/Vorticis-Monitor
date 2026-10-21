@@ -30,16 +30,16 @@ jobs:
       - name: Testes
         run: python -m pytest -q -rs --timeout=180 --timeout-method=thread
 
-      - name: Gerar MonitorNotas.exe (PyInstaller)
-        run: python -m PyInstaller --noconfirm MonitorNotas.spec
+      - name: Gerar VorticisMonitor.exe (PyInstaller)
+        run: python -m PyInstaller --noconfirm VorticisMonitor.spec
 
       - name: Montar pasta portatil
         shell: pwsh
         run: |
-          $pasta = "dist/MonitorNotas"
+          $pasta = "dist/VorticisMonitor"
           if (Test-Path $pasta) { Remove-Item $pasta -Recurse -Force }
           New-Item -ItemType Directory -Path "$pasta/certificados" | Out-Null
-          Copy-Item "dist/MonitorNotas.exe" $pasta
+          Copy-Item "dist/VorticisMonitor.exe" $pasta
           Copy-Item "config.exemplo.toml" $pasta
           Copy-Item "agendar_consulta.bat" $pasta
           $leia_cert = @(
@@ -49,20 +49,22 @@ jobs:
             "No config.toml, aponte para ele no campo certificado:",
             '   certificado = "certificados/empresa.pfx"',
             "",
+            "Alternativa: instale o certificado no Windows e cadastre-o pela interface.",
+            "",
             "Nao compartilhe esta pasta: ela contem a chave privada do certificado."
           )
           Set-Content -Path "$pasta/certificados/LEIA-ME.txt" -Value $leia_cert -Encoding UTF8
           $leia_uso = @(
-            "MONITOR DE NF-e e NFS-e - USO",
-            "==============================",
+            "VORTICIS MONITOR - USO",
+            "======================",
             "",
             "1. Copie config.exemplo.toml para config.toml (nesta mesma pasta) e ajuste os dados.",
-            "2. Coloque o certificado A1 .pfx na pasta certificados (veja o LEIA-ME.txt de la).",
-            "3. Abra o MonitorNotas.exe:",
-            "   - aba Empresas: cadastre a empresa, o certificado e a senha;",
-            "   - Consultar agora: busca os documentos;",
-            "   - filtre e exporte para Excel, CSV ou ZIP.",
-            "4. Consulta automatica com o programa fechado: execute agendar_consulta.bat",
+            "2. Abra o VorticisMonitor.exe:",
+            "   - aba Empresas: cadastre a empresa pelo certificado instalado no Windows",
+            "     ou pelo arquivo .pfx (pasta certificados);",
+            "   - Consultar: busca os documentos da empresa selecionada;",
+            "   - Consultas: filtre, selecione e exporte para XML, ZIP, PDF ou Excel.",
+            "3. Consulta automatica com o programa fechado: execute agendar_consulta.bat",
             "   (roda a cada 60 minutos). Para remover a tarefa: agendar_consulta.bat remover",
             "",
             "Dados ficam nesta pasta: dados\monitor.db (banco), dados\xml (XMLs) e dados\monitor.log.",
@@ -72,17 +74,17 @@ jobs:
             "Este monitor apenas consulta e extrai documentos. Ele nao manifesta notas."
           )
           Set-Content -Path "$pasta/LEIA-ME.txt" -Value $leia_uso -Encoding UTF8
-          Compress-Archive -Path $pasta -DestinationPath "dist/MonitorNotas-windows.zip" -Force
+          Compress-Archive -Path $pasta -DestinationPath "dist/VorticisMonitor-windows.zip" -Force
 
       - name: Publicar artefato
         uses: actions/upload-artifact@v4
         with:
-          name: MonitorNotas-windows
-          path: dist/MonitorNotas
+          name: VorticisMonitor-windows
+          path: dist/VorticisMonitor
           if-no-files-found: error
 
       - name: Publicar Release (somente tags v*)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/MonitorNotas-windows.zip
+          files: dist/VorticisMonitor-windows.zip

@@ -1,11 +1,13 @@
-# Configuração do Monitor de NF-e / NFS-e.
-# Copie para config.toml (na mesma pasta do MonitorNotas.exe) e ajuste.
-# Caminhos relativos são relativos à pasta do MonitorNotas.exe: a pasta inteira pode ser movida.
+# Configuração do Vorticis Monitor (NF-e / NFS-e).
+# Copie para config.toml (na mesma pasta do VorticisMonitor.exe) e ajuste.
+# Caminhos relativos são relativos à pasta do VorticisMonitor.exe: a pasta inteira pode ser movida.
 
 [geral]
 ambiente = "homologacao"        # "producao" quando validado
 banco = "dados/monitor.db"
 pasta_xml = "dados/xml"
+pasta_exportacao = "exportacoes"  # pasta padrão dos arquivos exportados pela interface
+consulta_automatica = false     # true: consulta sozinha enquanto a janela estiver aberta
 intervalo_minutos = 60          # mínimo 60 (regra da SEFAZ)
 verificar_tls = true            # ou caminho para a cadeia ICP-Brasil (.pem)
 
@@ -13,10 +15,16 @@ verificar_tls = true            # ou caminho para a cadeia ICP-Brasil (.pem)
 nome = "Minha Empresa"
 cnpj = "00.000.000/0001-00"
 uf = "SP"
+# Use UMA das duas formas de certificado:
+#
+# 1) Certificado instalado no Windows (A1 ou A3/token/cartão). A interface preenche
+#    esta linha ao cadastrar a empresa. Nenhuma senha é guardada: o Windows pode pedir o PIN.
+# thumbprint = "..."
+#
+# 2) Arquivo .pfx (A1), com a senha. A interface grava "dpapi:..." automaticamente:
+#    a senha fica protegida pelo Windows, válida só para este usuário neste computador.
+#    Também é aceito "env:NOME_DA_VARIAVEL" (lê a senha de uma variável de ambiente).
 certificado = "certificados/empresa.pfx"
-# Senha do certificado. A interface grava "dpapi:..." automaticamente: a senha fica
-# protegida pelo Windows, válida só para este usuário neste computador.
-# Também é aceito "env:NOME_DA_VARIAVEL" (lê a senha de uma variável de ambiente).
 # senha = "env:SENHA_CERT_EMPRESA"
 consultar_nfe = true
 consultar_nfse = true

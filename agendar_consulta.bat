@@ -3,18 +3,18 @@ chcp 65001 >nul
 setlocal EnableExtensions
 
 rem Cria (ou remove, com o parametro "remover") a tarefa no Agendador de Tarefas
-rem que roda "MonitorNotas.exe executar" a cada 60 minutos para o usuario atual.
+rem que roda "VorticisMonitor.exe executar" a cada 60 minutos para o usuario atual.
 rem O caminho e absoluto (via %~dp0). O programa resolve config, banco e certificados
 rem a partir da pasta do proprio .exe, entao nao precisa de "Iniciar em".
 
-set "NOME=MonitorNotas - consulta"
-set "EXE=%~dp0MonitorNotas.exe"
+set "NOME=Vorticis Monitor - consulta"
+set "EXE=%~dp0VorticisMonitor.exe"
 
 if /i "%~1"=="remover" goto remover
 
 if not exist "%EXE%" (
     echo Nao encontrei "%EXE%".
-    echo Coloque este arquivo na mesma pasta do MonitorNotas.exe.
+    echo Coloque este arquivo na mesma pasta do VorticisMonitor.exe.
     goto fim_erro
 )
 

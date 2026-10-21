@@ -1,10 +1,10 @@
 """Ponto de entrada.
 
 Sem argumentos abre a interface gráfica. Com argumentos (útil no Agendador de Tarefas):
-  MonitorNotas.exe executar            # um ciclo de consulta para todas as empresas
-  MonitorNotas.exe importar PASTA      # importa XMLs de NF-e emitidas (do seu emissor)
-  MonitorNotas.exe listar [--cnpj CNPJ] [--limite 50]
-  MonitorNotas.exe certificados        # mostra titular e validade
+  VorticisMonitor.exe executar            # um ciclo de consulta para todas as empresas
+  VorticisMonitor.exe importar PASTA      # importa XMLs de NF-e emitidas (do seu emissor)
+  VorticisMonitor.exe listar [--cnpj CNPJ] [--limite 50]
+  VorticisMonitor.exe certificados        # mostra titular e validade
 """
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ def main(argv=None) -> None:
         iniciar()
         return
 
-    ap = argparse.ArgumentParser(prog="MonitorNotas")
+    ap = argparse.ArgumentParser(prog="VorticisMonitor")
     ap.add_argument("--config", default=cfgmod.ARQUIVO_PADRAO)
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("executar")

@@ -1,18 +1,29 @@
 # -*- mode: python ; coding: utf-8 -*-
 # Gera o executavel portatil (onefile, sem console):
-#   pyinstaller --noconfirm MonitorNotas.spec
-# Saida: dist/MonitorNotas.exe (no Windows). Use build.bat para montar a pasta portatil.
+#   pyinstaller --noconfirm VorticisMonitor.spec
+# Saida: dist/VorticisMonitor.exe (no Windows). Use build.bat para montar a pasta portatil.
+
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 a = Analysis(
     ["run_monitor.py"],
     pathex=["."],
     binaries=[],
-    datas=[],
+    datas=[
+        # Recursos da interface (icones, logos). A GUI procura em
+        # Path(sys._MEIPASS) / "monitor_notas" / "recursos".
+        ("monitor_notas/recursos", "monitor_notas/recursos"),
+        *collect_data_files("fpdf"),
+        *collect_data_files("brazilfiscalreport"),
+    ],
     hiddenimports=[
         "monitor_notas.gui",
         "monitor_notas.exportar",
+        "monitor_notas.pdf",
+        "monitor_notas.winstore",
         "openpyxl",
         "lxml._elementpath",
+        *collect_submodules("brazilfiscalreport"),
     ],
     hookspath=[],
     hooksconfig={},
@@ -28,7 +39,8 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name="MonitorNotas",
+    name="VorticisMonitor",
+    icon="monitor_notas/recursos/icone.ico",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

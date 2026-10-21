@@ -20,31 +20,40 @@ CNPJ = "12345678000190"
 
 
 def _cert(cn, chave, ca=None, uso_cliente=False):
+    """`ca` = (cert, chave) emissora. Sem `ca`, autoassinado.
+
+    O certificado do cliente NÃO pode ser autoassinado: o certutil tentaria instalá-lo como
+    raiz confiável e abriria uma confirmação (invisível no CI), travando o teste."""
     agora = datetime.now(timezone.utc)
     nome = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, cn),
                       x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, "SP")])
-    b = (x509.CertificateBuilder().subject_name(nome).issuer_name(nome)
+    emissor, chave_assina = (ca[0].subject, ca[1]) if ca else (nome, chave)
+    b = (x509.CertificateBuilder().subject_name(nome).issuer_name(emissor)
          .public_key(chave.public_key()).serial_number(x509.random_serial_number())
          .not_valid_before(agora - timedelta(days=1)).not_valid_after(agora + timedelta(days=30)))
     if uso_cliente:
         b = b.add_extension(x509.ExtendedKeyUsage([x509.oid.ExtendedKeyUsageOID.CLIENT_AUTH]), False)
     else:
         b = b.add_extension(x509.SubjectAlternativeName([x509.DNSName("localhost")]), False)
-    return b.sign(chave, hashes.SHA256())
+    return b.sign(chave_assina, hashes.SHA256())
 
 
 @pytest.fixture(scope="module")
 def cert_instalado(tmp_path_factory):
     pasta = tmp_path_factory.mktemp("cert")
+    chave_ca = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    ca = _cert("AC TESTE VORTICIS", chave_ca)
     chave = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    cert = _cert(f"EMPRESA TESTE VORTICIS LTDA:{CNPJ}", chave, uso_cliente=True)
+    cert = _cert(f"EMPRESA TESTE VORTICIS LTDA:{CNPJ}", chave, ca=(ca, chave_ca), uso_cliente=True)
     pfx = pasta / "cliente.pfx"
     pfx.write_bytes(pkcs12.serialize_key_and_certificates(
         b"cliente", chave, cert, None, serialization.BestAvailableEncryption(b"1234")))
     tp = cert.fingerprint(hashes.SHA1()).hex().upper()
-    subprocess.run(["certutil", "-f", "-user", "-p", "1234", "-importpfx", "My", str(pfx)],
+    subprocess.run(["certutil", "-f", "-user", "-p", "1234", "-importpfx", "My", str(pfx),
+                    "NoRoot"],
                    check=True, capture_output=True, timeout=60)
-    (pasta / "cliente.pem").write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+    # o servidor de teste confia na AC que emitiu o certificado do cliente
+    (pasta / "cliente.pem").write_bytes(ca.public_bytes(serialization.Encoding.PEM))
     yield tp, pasta
     subprocess.run(["certutil", "-user", "-delstore", "My", tp], capture_output=True, timeout=60)
 
