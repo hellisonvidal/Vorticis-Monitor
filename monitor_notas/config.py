@@ -1,10 +1,14 @@
-"""Leitura do config.toml."""
+"""Leitura e gravação do config.toml (fica na pasta do executável)."""
 from __future__ import annotations
 
-import os
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from . import segredo
+from .caminhos import resolver
+
+ARQUIVO_PADRAO = "config.toml"
 
 # Código IBGE das UFs (cUFAutor da DistDFe)
 CODIGOS_UF = {
@@ -21,48 +25,63 @@ class Empresa:
     cnpj: str
     uf: str
     certificado: str
-    senha: str
+    senha_armazenada: str  # como está no arquivo (dpapi:/env:/texto)
     consultar_nfe: bool = True
     consultar_nfse: bool = True
-    # Deixe False se outro sistema (ex.: Auditto) já faz a manifestação.
-    manifestar_ciencia: bool = False
 
     @property
     def cuf(self) -> int:
         return CODIGOS_UF[self.uf.upper()]
 
+    @property
+    def senha(self) -> str:
+        return segredo.revelar(self.senha_armazenada)
+
+    @property
+    def caminho_certificado(self) -> Path:
+        return resolver(self.certificado)
+
 
 @dataclass
 class Config:
-    ambiente: str  # "producao" | "homologacao"
-    banco: str
-    pasta_xml: str
-    intervalo_minutos: int
-    verificar_tls: bool | str
+    ambiente: str = "producao"  # "producao" | "homologacao"
+    banco: str = "dados/monitor.db"
+    pasta_xml: str = "dados/xml"
+    intervalo_minutos: int = 60
+    verificar_tls: bool | str = True
     empresas: list[Empresa] = field(default_factory=list)
 
     @property
     def tp_amb(self) -> int:
         return 1 if self.ambiente == "producao" else 2
 
+    @property
+    def caminho_banco(self) -> Path:
+        return resolver(self.banco)
 
-def _senha(bruta: str) -> str:
-    # "env:NOME" lê a senha da variável de ambiente NOME (evita senha em texto no arquivo)
-    if bruta.startswith("env:"):
-        nome = bruta[4:]
-        valor = os.environ.get(nome)
-        if valor is None:
-            raise ValueError(f"Variável de ambiente {nome} não definida")
-        return valor
-    return bruta
+    @property
+    def caminho_xml(self) -> Path:
+        return resolver(self.pasta_xml)
+
+    @property
+    def tls(self) -> bool | str:
+        return str(resolver(self.verificar_tls)) if isinstance(self.verificar_tls, str) \
+            else self.verificar_tls
 
 
-def carregar(caminho: str | Path = "config.toml") -> Config:
-    dados = tomllib.loads(Path(caminho).read_text(encoding="utf-8"))
+def so_digitos(v: str) -> str:
+    return "".join(c for c in v if c.isdigit())
+
+
+def carregar(caminho: str | Path = ARQUIVO_PADRAO) -> Config:
+    arq = resolver(caminho)
+    if not arq.exists():
+        return Config()
+    dados = tomllib.loads(arq.read_text(encoding="utf-8"))
     geral = dados.get("geral", {})
     empresas = []
     for e in dados.get("empresa", []):
-        cnpj = "".join(c for c in e["cnpj"] if c.isdigit())
+        cnpj = so_digitos(e["cnpj"])
         if len(cnpj) != 14:
             raise ValueError(f"CNPJ inválido: {e['cnpj']}")
         empresas.append(Empresa(
@@ -70,10 +89,9 @@ def carregar(caminho: str | Path = "config.toml") -> Config:
             cnpj=cnpj,
             uf=e["uf"],
             certificado=e["certificado"],
-            senha=_senha(e["senha"]),
+            senha_armazenada=e.get("senha", ""),
             consultar_nfe=e.get("consultar_nfe", True),
             consultar_nfse=e.get("consultar_nfse", True),
-            manifestar_ciencia=e.get("manifestar_ciencia", False),
         ))
     return Config(
         ambiente=geral.get("ambiente", "producao"),
@@ -83,3 +101,28 @@ def carregar(caminho: str | Path = "config.toml") -> Config:
         verificar_tls=geral.get("verificar_tls", True),
         empresas=empresas,
     )
+
+
+def _toml(v) -> str:
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, int):
+        return str(v)
+    s = str(v).replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{s}"'
+
+
+def salvar(cfg: Config, caminho: str | Path = ARQUIVO_PADRAO) -> None:
+    linhas = ["[geral]"]
+    for k in ("ambiente", "banco", "pasta_xml", "intervalo_minutos", "verificar_tls"):
+        linhas.append(f"{k} = {_toml(getattr(cfg, k))}")
+    for e in cfg.empresas:
+        linhas += ["", "[[empresa]]"]
+        for k, v in (("nome", e.nome), ("cnpj", e.cnpj), ("uf", e.uf.upper()),
+                     ("certificado", e.certificado), ("senha", e.senha_armazenada),
+                     ("consultar_nfe", e.consultar_nfe), ("consultar_nfse", e.consultar_nfse)):
+            linhas.append(f"{k} = {_toml(v)}")
+    arq = resolver(caminho)
+    tmp = arq.with_suffix(".tmp")
+    tmp.write_text("\n".join(linhas) + "\n", encoding="utf-8")
+    tmp.replace(arq)

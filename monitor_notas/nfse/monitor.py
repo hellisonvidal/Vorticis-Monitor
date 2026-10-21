@@ -28,7 +28,7 @@ def executar(cfg: Config, emp: Empresa, cert: Certificado, db: Armazenamento) ->
         log.info("[%s] NFS-e: aguardando até %s", emp.nome, proxima)
         return 0
 
-    cli = ClienteADN(cert, cfg.tp_amb, emp.cnpj, cfg.verificar_tls)
+    cli = ClienteADN(cert, cfg.tp_amb, emp.cnpj, cfg.tls)
     ult = int(db.obter_estado(k_nsu, "0"))
     novos = 0
     for _ in range(MAX_LOTES_POR_CICLO):

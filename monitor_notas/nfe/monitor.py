@@ -1,4 +1,8 @@
-"""Ciclo de captura de NF-e de uma empresa."""
+"""Ciclo de captura de NF-e de uma empresa (somente consulta).
+
+Sem manifestação, notas recebidas chegam como resumo (resNFe). Quando outro sistema
+(ex.: Auditto) manifesta, a SEFAZ libera o XML completo em um novo NSU e ele chega aqui também.
+"""
 from __future__ import annotations
 
 import logging
@@ -7,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 from ..armazenamento import Armazenamento
 from ..certificado import Certificado
 from ..config import Config, Empresa
-from . import manifestacao, parser
+from . import parser
 from .distdfe import CONSUMO_INDEVIDO, DOCUMENTOS_LOCALIZADOS, NENHUM_DOCUMENTO, ClienteDistDFe
 
 log = logging.getLogger(__name__)
@@ -28,7 +32,7 @@ def executar(cfg: Config, emp: Empresa, cert: Certificado, db: Armazenamento) ->
         log.info("[%s] NF-e: aguardando até %s (regra de consumo da SEFAZ)", emp.nome, proxima)
         return 0
 
-    cli = ClienteDistDFe(cert, cfg.tp_amb, emp.cuf, emp.cnpj, cfg.verificar_tls)
+    cli = ClienteDistDFe(cert, cfg.tp_amb, emp.cuf, emp.cnpj, cfg.tls)
     ult = db.obter_estado(k_nsu, "0")
     novos = 0
     for _ in range(MAX_LOTES_POR_CICLO):
@@ -51,22 +55,4 @@ def executar(cfg: Config, emp: Empresa, cert: Certificado, db: Armazenamento) ->
             db.gravar_estado(k_prox, (_agora() + ESPERA).isoformat())
             break
 
-    if emp.manifestar_ciencia:
-        _manifestar_pendentes(cfg, emp, cert, db)
     return novos
-
-
-def _manifestar_pendentes(cfg: Config, emp: Empresa, cert: Certificado, db: Armazenamento) -> None:
-    """Envia Ciência da Operação para resumos ainda sem XML completo.
-
-    O XML completo chega depois pela própria DistDFe (em ciclos seguintes).
-    """
-    for chave in db.resumos_sem_completo(emp.cnpj):
-        k = f"nfe:manifestada:{chave}"
-        if db.obter_estado(k):
-            continue
-        ret = manifestacao.manifestar(cert, cfg.tp_amb, emp.cnpj, chave,
-                                      verificar_tls=cfg.verificar_tls)
-        log.info("[%s] Ciência %s: %s %s", emp.nome, chave, ret.cstat, ret.motivo)
-        if ret.ok:
-            db.gravar_estado(k, ret.cstat)

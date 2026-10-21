@@ -41,7 +41,7 @@ def _nfse(chave: str) -> str:
 @pytest.fixture
 def empresa():
     return Empresa(nome="Empresa Teste", cnpj=CNPJ, uf="SP",
-                   certificado="x.pfx", senha="segredo")
+                   certificado="x.pfx", senha_armazenada="segredo")
 
 
 @pytest.fixture

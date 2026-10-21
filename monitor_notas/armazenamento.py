@@ -55,7 +55,8 @@ class Armazenamento:
     def __init__(self, banco: str, pasta_xml: str):
         Path(banco).parent.mkdir(parents=True, exist_ok=True)
         self.pasta_xml = Path(pasta_xml)
-        self.con = sqlite3.connect(banco)
+        self.con = sqlite3.connect(banco, timeout=30)
+        self.con.execute("PRAGMA journal_mode=WAL")
         self.con.row_factory = sqlite3.Row
         self.con.executescript(ESQUEMA)
 
@@ -112,6 +113,36 @@ class Armazenamento:
             (cnpj,),
         ).fetchall()
         return [l["chave"] for l in linhas]
+
+    def consultar(self, cnpj: str | None = None, origem: str | None = None,
+                  direcao: str | None = None, tipo: str | None = None,
+                  data_ini: str | None = None, data_fim: str | None = None,
+                  texto: str | None = None, limite: int | None = None) -> list[sqlite3.Row]:
+        """Filtros opcionais. Datas no formato AAAA-MM-DD (inclusivas). `texto` busca em
+        chave, nome e CNPJ do emitente."""
+        conds, args = [], []
+        for col, val in (("cnpj_empresa", cnpj), ("origem", origem),
+                         ("direcao", direcao), ("tipo", tipo)):
+            if val:
+                conds.append(f"{col} = ?")
+                args.append(val)
+        if data_ini:
+            conds.append("substr(data_emissao, 1, 10) >= ?")
+            args.append(data_ini)
+        if data_fim:
+            conds.append("substr(data_emissao, 1, 10) <= ?")
+            args.append(data_fim)
+        if texto:
+            conds.append("(chave LIKE ? OR emitente_nome LIKE ? OR emitente_cnpj LIKE ?)")
+            args += [f"%{texto}%"] * 3
+        sql = "SELECT * FROM documentos"
+        if conds:
+            sql += " WHERE " + " AND ".join(conds)
+        sql += " ORDER BY data_emissao DESC, id DESC"
+        if limite:
+            sql += " LIMIT ?"
+            args.append(limite)
+        return self.con.execute(sql, args).fetchall()
 
     def listar(self, cnpj: str | None = None, limite: int = 50) -> list[sqlite3.Row]:
         sql = "SELECT * FROM documentos"
