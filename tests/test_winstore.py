@@ -43,10 +43,10 @@ def cert_instalado(tmp_path_factory):
         b"cliente", chave, cert, None, serialization.BestAvailableEncryption(b"1234")))
     tp = cert.fingerprint(hashes.SHA1()).hex().upper()
     subprocess.run(["certutil", "-f", "-user", "-p", "1234", "-importpfx", "My", str(pfx)],
-                   check=True, capture_output=True)
+                   check=True, capture_output=True, timeout=60)
     (pasta / "cliente.pem").write_bytes(cert.public_bytes(serialization.Encoding.PEM))
     yield tp, pasta
-    subprocess.run(["certutil", "-user", "-delstore", "My", tp], capture_output=True)
+    subprocess.run(["certutil", "-user", "-delstore", "My", tp], capture_output=True, timeout=60)
 
 
 def test_lista_e_le_certificado(cert_instalado):
