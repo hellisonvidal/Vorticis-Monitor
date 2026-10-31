@@ -1,0 +1,12 @@
+[Unit]
+Description=Vorticis Monitor Fiscal
+After=network-online.target
+
+[Service]
+User=vorticis
+Environment=VORTICIS_DATA=/var/lib/vorticis VORTICIS_HOST=127.0.0.1
+ExecStart=/usr/local/bin/vorticis-monitor run
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

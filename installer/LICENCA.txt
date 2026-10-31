@@ -1,0 +1,15 @@
+VORTICIS MONITOR - TERMOS DE USO
+
+Copyright (c) 2026 Vorticis. Todos os direitos reservados.
+
+1. O Vorticis Monitor é uma ferramenta de apoio à gestão e auditoria fiscal. As
+   validações, cálculos (DIFAL, ICMS-ST, PIS/COFINS, retenções) e arquivos SPED
+   gerados são de conferência/pré-escrituração e NÃO substituem a análise do
+   responsável técnico (contador) nem a validação no PVA da Receita Federal.
+2. Tabelas de alíquotas, MVA e URLs de webservices são valores de referência e
+   devem ser revisados conforme a legislação vigente de cada UF/município.
+3. O certificado digital A1 informado é armazenado cifrado (AES-256-GCM, chave
+   protegida pela DPAPI do Windows) e utilizado exclusivamente para comunicação
+   com a SEFAZ/Ambiente Nacional.
+4. O software é fornecido "no estado em que se encontra", sem garantias de
+   qualquer natureza.

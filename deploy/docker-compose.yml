@@ -1,0 +1,8 @@
+services:
+  vorticis-monitor:
+    build: { context: .., dockerfile: deploy/Dockerfile }
+    restart: unless-stopped
+    ports: ["8765:8765"]
+    volumes: ["vorticis-dados:/dados"]
+volumes:
+  vorticis-dados:

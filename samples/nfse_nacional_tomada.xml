@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<NFSe xmlns="http://www.sped.fazenda.gov.br/nfse" versao="1.00"><infNFSe Id="NFS355030822233445500018600000000000041226101234567890">
+<xLocEmi>Sao Paulo</xLocEmi><xLocPrestacao>Sao Paulo</xLocPrestacao><nNFSe>412</nNFSe><cLocIncid>3550308</cLocIncid><xLocIncid>Sao Paulo</xLocIncid>
+<xTribNac>Limpeza, manutencao e conservacao</xTribNac><verAplic>1.0</verAplic><ambGer>2</ambGer><tpEmis>1</tpEmis><procEmi>1</procEmi><cStat>100</cStat>
+<dhProc>2026-10-30T22:16:27-03:00</dhProc><nDFSe>1</nDFSe>
+<emit><CNPJ>22334455000186</CNPJ><xNome>LIMPA BEM SERVICOS LTDA</xNome><enderNac><xLgr>Rua C</xLgr><nro>3</nro><xBairro>Centro</xBairro><cMun>3550308</cMun><UF>SP</UF><CEP>01000000</CEP></enderNac></emit>
+<valores><vBC>8000.00</vBC><pAliqAplic>2.00</pAliqAplic><vISSQN>160.00</vISSQN><vTotalRet>452.00</vTotalRet><vLiq>7548.00</vLiq></valores>
+<DPS versao="1.00"><infDPS Id="DPS1"><tpAmb>2</tpAmb><dhEmi>2026-10-30T22:16:27-03:00</dhEmi><verAplic>1.0</verAplic><serie>1</serie><nDPS>412</nDPS><dCompet>2026-10-30</dCompet>
+<tpEmit>1</tpEmit><cLocEmi>3550308</cLocEmi>
+<prest><CNPJ>22334455000186</CNPJ><regTrib><opSimpNac>1</opSimpNac><regEspTrib>0</regEspTrib></regTrib></prest>
+<toma><CNPJ>11222333000181</CNPJ><xNome>VORTICIS DEMO COMERCIO LTDA</xNome></toma>
+<serv><locPrest><cLocPrestacao>3550308</cLocPrestacao></locPrest><cServ><cTribNac>071001</cTribNac><xDescServ>Limpeza predial mensal</xDescServ></cServ></serv>
+<valores><vServPrest><vServ>8000.00</vServ></vServPrest><trib><tribMun><tribISSQN>1</tribISSQN><tpRetISSQN>1</tpRetISSQN><pAliq>2.00</pAliq></tribMun>
+<tribFed><piscofins><CST>01</CST><vBCPisCofins>8000.00</vBCPisCofins><pAliqPis>0.65</pAliqPis><pAliqCofins>3.00</pAliqCofins><vPis>52.00</vPis><vCofins>240.00</vCofins><tpRetPisCofins>1</tpRetPisCofins></piscofins>
+<vRetIRRF>80.00</vRetIRRF><vRetCSLL>80.00</vRetCSLL></tribFed><totTrib><indTotTrib>0</indTotTrib></totTrib></trib></valores></infDPS></DPS></infNFSe></NFSe>

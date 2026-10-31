@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vorticis Monitor</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='14' fill='%230f766e'/><path d='M9 10l7 13 7-13' stroke='white' stroke-width='3' fill='none'/></svg>">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div id="login" class="login hidden">
+  <form id="form-login" class="card login-card">
+    <div class="brand big"><span class="logo">V</span> Vorticis Monitor</div>
+    <p class="muted" id="login-sub">Monitor fiscal em tempo real</p>
+    <div id="setup-campos" class="hidden"><label>Nome<input name="nome"></label></div>
+    <label>Usuário<input name="login" required autocomplete="username"></label>
+    <label>Senha<input name="senha" type="password" required autocomplete="current-password"></label>
+    <button class="btn primary" type="submit" id="btn-login">Entrar</button>
+    <p class="erro" id="login-erro"></p>
+  </form>
+</div>
+
+<div id="app" class="hidden">
+  <aside class="side">
+    <div class="brand"><span class="logo">V</span> Vorticis Monitor</div>
+    <nav id="menu">
+      <a data-v="painel" class="ativo">Painel</a>
+      <a data-v="documentos">Documentos</a>
+      <a data-v="rejeicoes">Central de Rejeições</a>
+      <a data-v="alertas">Alertas <span id="badge-alertas" class="badge hidden"></span></a>
+      <a data-v="entradas">Entradas e Compras</a>
+      <a data-v="servicos">Serviços e Transporte</a>
+      <a data-v="apuracao">Apuração e Simuladores</a>
+      <a data-v="relatorios">Relatórios e SPED</a>
+      <a data-v="config">Configurações</a>
+    </nav>
+    <div class="side-foot"><span id="sse" class="dot off"></span> <span id="sse-txt">offline</span><br><a id="sair">Sair</a></div>
+  </aside>
+  <main>
+    <header class="top">
+      <select id="empresa-sel"></select>
+      <input id="busca" placeholder="Buscar chave, número, CNPJ, nome…">
+      <label class="btn" for="upload">Importar XML/ZIP<input id="upload" type="file" multiple accept=".xml,.zip" hidden></label>
+    </header>
+    <div id="banner-cert" class="banner hidden"></div>
+    <section id="view"></section>
+  </main>
+</div>
+
+<div id="drawer" class="drawer hidden"><div class="drawer-body" id="drawer-body"></div></div>
+<div id="modal" class="modal hidden"><div class="card modal-body" id="modal-body"></div></div>
+<div id="toasts"></div>
+<script src="app.js"></script>
+</body>
+</html>
