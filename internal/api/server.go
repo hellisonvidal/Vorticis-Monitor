@@ -25,7 +25,7 @@ import (
 	"vorticis.com.br/monitor/internal/store"
 )
 
-const Versao = "1.1.0"
+const Versao = "1.2.0"
 
 type Server struct {
 	M      *servicos.Monitor
@@ -100,6 +100,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/usuarios", admin(s.criarUsuario))
 	mux.HandleFunc("GET /api/v1/auditoria", admin(s.auditoria))
 	mux.HandleFunc("GET /api/v1/config", admin(s.obterConfig))
+	mux.HandleFunc("GET /api/v1/sistema/pastas", admin(s.navegarPastas))
+	mux.HandleFunc("POST /api/v1/sistema/pastas", admin(s.criarPasta))
 	mux.HandleFunc("PUT /api/v1/config", admin(s.salvarConfig))
 
 	if s.Static != nil {
@@ -197,16 +199,42 @@ func (s *Server) authSetup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) authLogin(w http.ResponseWriter, r *http.Request) {
-	var in struct{ Login, Senha string }
+	var in struct {
+		Login, Senha string
+		Lembrar      bool
+		Credencial   string
+	}
 	ler(r, &in)
-	u, err := s.M.Store.UsuarioPorLogin(in.Login)
-	if err != nil || !u.Ativo || !conferirSenha(in.Senha, u.SenhaHash) {
-		time.Sleep(400 * time.Millisecond)
-		erro(w, http.StatusUnauthorized, "usuário ou senha inválidos")
-		return
+	var u *store.Usuario
+	var err error
+	if in.Credencial != "" { // login com a senha salva neste computador
+		ss, e := s.lerAssinado(in.Credencial)
+		if e == nil && ss.Tipo == "c" {
+			u, err = s.M.Store.UsuarioPorLogin(ss.Login)
+			if err == nil && (!u.Ativo || resumoSenha(u.SenhaHash) != ss.Chk) {
+				err = errors.New("senha alterada")
+			}
+		} else {
+			err = e
+		}
+		if err != nil {
+			erro(w, http.StatusUnauthorized, "a senha salva não vale mais (expirou ou foi alterada) — digite a senha novamente")
+			return
+		}
+	} else {
+		u, err = s.M.Store.UsuarioPorLogin(in.Login)
+		if err != nil || !u.Ativo || !conferirSenha(in.Senha, u.SenhaHash) {
+			time.Sleep(400 * time.Millisecond)
+			erro(w, http.StatusUnauthorized, "usuário ou senha inválidos")
+			return
+		}
 	}
 	s.M.Store.Auditar(u.Login, "LOGIN", "usuario", u.Login, r.RemoteAddr)
-	jsonOK(w, map[string]any{"token": s.emitirToken(u.Login, u.Perfil), "usuario": u})
+	out := map[string]any{"token": s.emitirToken(u.Login, u.Perfil), "usuario": u}
+	if in.Lembrar || in.Credencial != "" {
+		out["credencial"] = s.emitirCredencial(u.Login, u.SenhaHash)
+	}
+	jsonOK(w, out)
 }
 
 // ---------- tempo real (SSE) ----------
@@ -449,9 +477,17 @@ func (s *Server) relatorio(w http.ResponseWriter, r *http.Request) {
 		erro(w, 404, err.Error())
 		return
 	}
+	disponiveis := append([]relatorios.Coluna(nil), rel.Colunas...)
+	var sel []int
+	for _, x := range strings.Split(r.URL.Query().Get("colunas"), ",") {
+		if i, err := strconv.Atoi(strings.TrimSpace(x)); err == nil {
+			sel = append(sel, i)
+		}
+	}
+	rel.Selecionar(sel)
 	formato := r.URL.Query().Get("formato")
 	if formato == "" || formato == "json" {
-		jsonOK(w, rel)
+		jsonOK(w, map[string]any{"relatorio": rel, "disponiveis": disponiveis, "selecionadas": rel.Indices})
 		return
 	}
 	ct, ok := relatorios.Formatos[formato]

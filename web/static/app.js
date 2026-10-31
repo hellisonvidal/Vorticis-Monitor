@@ -62,7 +62,7 @@ async function api(path, opt = {}) {
   try { r = await fetch("/api/v1" + path, { ...opt, signal: ctl.signal }); }
   catch (e) { throw new Error(e.name === "AbortError" ? "A consulta demorou demais e foi interrompida. Verifique a internet e tente novamente." : "Não foi possível falar com o serviço do monitor: " + e.message); }
   finally { clearTimeout(lim); }
-  if (r.status === 401 && !path.startsWith("/auth")) { sair(); throw new Error("Sessão expirada"); }
+  if (r.status === 401 && !path.startsWith("/auth")) { expirou(); throw new Error("Sessão expirada"); }
   if (opt.blob) { if (!r.ok) throw new Error((await r.json().catch(() => ({}))).erro || r.statusText); return r; }
   const ct = r.headers.get("content-type") || "";
   const body = ct.includes("json") ? await r.json() : await r.text();
@@ -85,27 +85,52 @@ async function baixar(resp, nomePadrao) {
 }
 
 /* ---------- login ---------- */
+// "Salvar senha": o servidor entrega uma credencial assinada (180 dias, invalidada
+// se a senha mudar); a senha em si nunca fica guardada no computador.
+const LS = { get: k => { try { return localStorage.getItem(k) || ""; } catch { return ""; } }, set: (k, v) => { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch { } } };
+function prepararLogin() {
+  const cred = LS.get("vtx_cred"), f = $("#form-login");
+  $("#ck-lembrar").checked = !!cred; $("#ck-auto").checked = !!LS.get("vtx_auto");
+  $("#ck-auto").onchange = () => { if ($("#ck-auto").checked) $("#ck-lembrar").checked = true; };
+  $("#ck-lembrar").onchange = () => { if (!$("#ck-lembrar").checked) $("#ck-auto").checked = false; };
+  if (cred) {
+    f.login.value = LS.get("vtx_login"); f.senha.required = false; f.senha.placeholder = "•••••• senha salva";
+    $("#esquecer").classList.remove("hidden");
+  }
+  $("#esquecer").onclick = () => { ["vtx_cred", "vtx_auto", "vtx_login"].forEach(k => LS.set(k, "")); f.senha.required = true; f.senha.placeholder = ""; $("#esquecer").classList.add("hidden"); $("#ck-lembrar").checked = $("#ck-auto").checked = false; };
+}
 async function iniciar() {
   const e = await fetch("/api/v1/auth/estado").then(r => r.json());
   if (e.precisa_setup) {
     $("#login").classList.remove("hidden"); $("#setup-campos").classList.remove("hidden");
     $("#login-sub").textContent = "Primeiro acesso: crie o usuário administrador do programa"; $("#btn-login").textContent = "Criar administrador";
-    $("#form-login").dataset.setup = "1"; return;
+    $("#form-login").dataset.setup = "1"; $("#lembrar-campos").classList.add("hidden"); return;
   }
-  if (!estado.token) { $("#login").classList.remove("hidden"); return; }
-  try { await carregarEmpresas(); entrar(); } catch { $("#login").classList.remove("hidden"); }
+  if (estado.token) { try { await carregarEmpresas(); entrar(); return; } catch { estado.token = ""; } }
+  prepararLogin();
+  if (LS.get("vtx_cred") && LS.get("vtx_auto") && !sessionStorage.getItem("vtx_saiu")) {
+    try { await autenticar({ credencial: LS.get("vtx_cred") }, true, true); return; } catch (er) { $("#login-erro").textContent = er.message; }
+  }
+  $("#login").classList.remove("hidden");
+}
+async function autenticar(corpo, lembrar, auto, setup) {
+  const r = await api(setup ? "/auth/setup" : "/auth/login", { method: "POST", json: { ...corpo, lembrar } });
+  estado.token = r.token; LS.set("vtx_token", r.token); sessionStorage.removeItem("vtx_saiu");
+  if (lembrar && r.credencial) { LS.set("vtx_cred", r.credencial); LS.set("vtx_login", r.usuario?.login || corpo.login); LS.set("vtx_auto", auto ? "1" : ""); }
+  else if (!setup) ["vtx_cred", "vtx_auto", "vtx_login"].forEach(k => LS.set(k, ""));
+  $("#login").classList.add("hidden"); await carregarEmpresas(); entrar();
+  if (!estado.empresas.length) { mostrar("empresas"); novaEmpresa(); }
 }
 $("#form-login").onsubmit = async ev => {
   ev.preventDefault();
-  const f = new FormData(ev.target), setup = ev.target.dataset.setup === "1";
-  try {
-    const r = await api(setup ? "/auth/setup" : "/auth/login", { method: "POST", json: { login: f.get("login"), senha: f.get("senha"), nome: f.get("nome") } });
-    estado.token = r.token; localStorage.setItem("vtx_token", r.token);
-    $("#login").classList.add("hidden"); await carregarEmpresas(); entrar();
-    if (!estado.empresas.length) { mostrar("empresas"); novaEmpresa(); }
-  } catch (e) { $("#login-erro").textContent = e.message; }
+  const f = new FormData(ev.target), setup = ev.target.dataset.setup === "1", cred = LS.get("vtx_cred");
+  const usaCred = !setup && cred && !f.get("senha") && f.get("login").toLowerCase() === LS.get("vtx_login").toLowerCase();
+  const corpo = usaCred ? { credencial: cred } : { login: f.get("login"), senha: f.get("senha"), nome: f.get("nome") };
+  try { await autenticar(corpo, !!f.get("lembrar"), !!f.get("auto"), setup); }
+  catch (e) { $("#login-erro").textContent = e.message; if (usaCred) $("#esquecer").click(); }
 };
-function sair() { localStorage.removeItem("vtx_token"); estado.token = ""; location.reload(); }
+function sair() { LS.set("vtx_token", ""); estado.token = ""; sessionStorage.setItem("vtx_saiu", "1"); location.reload(); }
+function expirou() { LS.set("vtx_token", ""); estado.token = ""; location.reload(); }
 $("#sair").onclick = sair;
 $("#recolher").onclick = () => { $("#side").classList.toggle("mini"); localStorage.setItem("vtx_mini", $("#side").classList.contains("mini") ? "1" : ""); };
 if (localStorage.getItem("vtx_mini")) $("#side").classList.add("mini");
@@ -348,21 +373,38 @@ VIEWS.relatorios = async el => {
     sel("r-mod", "Documento", rf.modelo, [["", "Todos"], ["NFE", "NF-e"], ["NFCE", "NFC-e"], ["NFSE", "NFS-e"], ["CTE", "CT-e"], ["MDFE", "MDF-e"]]) +
     sel("r-st", "Situação", rf.status, [["", "Todas"], ...Object.entries(ST)]);
   const q = qsBase({ direcao: rf.direcao, modelo: rf.modelo, status: rf.status });
-  const rel = await api(`/relatorios/${estado.rel}?` + q);
+  const camposSalvos = LS.get("vtx_rel_" + estado.rel);
+  if (camposSalvos) q.set("colunas", camposSalvos);
+  const resp = await api(`/relatorios/${estado.rel}?` + q), rel = resp.relatorio;
   estado.total = rel.linhas.length;
   const fmtCel = (v, t) => t === "M" ? brl(v) : t === "D" ? dia(v) : esc(v);
   const lim = rel.linhas.slice(0, 300);
-  el.innerHTML = filtroHTML(extras) + `<div class="rel">
-    <div class="rel-lista">${cat.map(c => `<a data-r="${c.id}" class="${estado.rel === c.id ? "on" : ""}"><b>${esc(c.nome)}</b><span>${esc(c.descricao)}</span></a>`).join("")}</div>
-    <div class="card rel-prev"><div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap">
-      <div><h3 style="margin:0">${esc(rel.titulo)}</h3><div class="doc-sub">${esc(rel.filtros)} · ${rel.linhas.length} linha(s)</div></div>
-      <div class="acoes" style="margin:0">${[["pdf", "PDF"], ["xlsx", "Excel (XLSX)"], ["xls", "Excel 97-2003 (XLS)"], ["csv", "CSV"]].map(([f, l]) => `<button class="btn sm ${f === "pdf" ? "primary" : ""}" data-f="${f}">${svg(f === "pdf" ? "pdf" : "docs")} ${l}</button>`).join("")}</div></div>
+  const selec = new Set(resp.selecionadas);
+  el.innerHTML = filtroHTML(extras) + `<div class="rel-tipos">${cat.map(c => `<a data-r="${c.id}" class="${estado.rel === c.id ? "on" : ""}" title="${esc(c.descricao)}">${esc(c.nome)}</a>`).join("")}</div>
+    <div class="card rel-prev"><div class="rel-topo">
+      <div><h3 style="margin:0">${esc(rel.titulo)}</h3><div class="doc-sub">${esc(rel.filtros)} · ${rel.linhas.length} linha(s) · ${rel.colunas.length} de ${resp.disponiveis.length} campos</div></div>
+      <div class="acoes" style="margin:0"><div class="campos-wrap"><button class="btn sm" id="bt-campos">${svg("config")} Campos</button>
+        <div class="campos hidden" id="campos"><div class="campos-cab"><b>Campos exibidos</b><span><a data-c="todos">Todos</a> · <a data-c="padrao">Padrão</a></span></div>
+        ${resp.disponiveis.map((c, i) => `<label><input type="checkbox" value="${i}" ${selec.has(i) ? "checked" : ""}> ${esc(c.titulo)}</label>`).join("")}
+        <button class="btn sm primary" id="campos-ok">Aplicar</button></div></div>
+      ${[["pdf", "PDF"], ["xlsx", "Excel (XLSX)"], ["xls", "Excel 97-2003 (XLS)"], ["csv", "CSV"]].map(([f, l]) => `<button class="btn sm ${f === "pdf" ? "primary" : ""}" data-f="${f}">${svg(f === "pdf" ? "pdf" : "docs")} ${l}</button>`).join("")}</div></div>
       <div class="tbl" style="margin-top:14px"><table><thead><tr>${rel.colunas.map(c => `<th class="${"MN".includes(c.tipo) ? "n" : ""}">${esc(c.titulo)}</th>`).join("")}</tr></thead><tbody>
       ${lim.map(l => `<tr>${l.map((v, i) => `<td class="${"MN".includes(rel.colunas[i].tipo) ? "n" : ""}">${fmtCel(v, rel.colunas[i].tipo)}</td>`).join("")}</tr>`).join("") || `<tr><td colspan="${rel.colunas.length}" class="muted">Nenhum registro no período e filtros informados.</td></tr>`}
       ${rel.total ? `<tr class="total">${rel.total.map((v, i) => `<td class="${"MN".includes(rel.colunas[i].tipo) ? "n" : ""}">${fmtCel(v, rel.colunas[i].tipo)}</td>`).join("")}</tr>` : ""}</tbody></table></div>
-      ${rel.linhas.length > lim.length ? `<p class="muted">Pré-visualização das primeiras ${lim.length} linhas — o arquivo exportado contém todas.</p>` : ""}</div></div>`;
+      ${rel.linhas.length > lim.length ? `<p class="muted">Pré-visualização das primeiras ${lim.length} linhas — o arquivo exportado contém todas.</p>` : ""}</div>`;
+  const cx = $("#campos", el);
+  $("#bt-campos", el).onclick = e => { e.stopPropagation(); cx.classList.toggle("hidden"); };
+  cx.onclick = e => e.stopPropagation();
+  document.addEventListener("click", () => cx.classList.add("hidden"), { once: true });
+  $$("[data-c]", cx).forEach(a => a.onclick = () => $$("input", cx).forEach((i, n) => i.checked = a.dataset.c === "todos" || resp.disponiveis[n].padrao));
+  $("#campos-ok", cx).onclick = () => {
+    const v = $$("input:checked", cx).map(i => i.value);
+    if (!v.length) { toast("Escolha pelo menos um campo", "var(--er)"); return; }
+    const padrao = resp.disponiveis.map((c, i) => c.padrao ? String(i) : null).filter(x => x !== null).join(",");
+    LS.set("vtx_rel_" + estado.rel, v.join(",") === padrao ? "" : v.join(",")); mostrar("relatorios", true);
+  };
   ligarFiltro(el, () => { rf.direcao = $("#r-dir").value; rf.modelo = $("#r-mod").value; rf.status = $("#r-st").value; });
-  $$(".rel-lista a", el).forEach(a => a.onclick = () => { estado.rel = a.dataset.r; mostrar("relatorios", true); });
+  $$(".rel-tipos a", el).forEach(a => a.onclick = () => { estado.rel = a.dataset.r; mostrar("relatorios", true); });
   $$("[data-f]", el).forEach(b => b.onclick = async () => {
     const txt = b.innerHTML; b.disabled = true; b.textContent = "Gerando…";
     try { q.set("formato", b.dataset.f); await baixar(await api(`/relatorios/${estado.rel}?` + q, { blob: true }), `${estado.rel}.${b.dataset.f}`); toast("Relatório salvo em Downloads", "var(--ok)"); }
@@ -580,14 +622,54 @@ CFG.integracao = async el => {
 async function remWh(id) { await api(`/integracoes/webhooks/${id}`, { method: "DELETE" }); mostrar("config"); }
 CFG.sistema = async el => {
   const c = await api("/config"), cf = c.config;
-  const campos = [["intervalo_distdfe_min", "Intervalo da busca de NF-e recebidas na SEFAZ (min; mínimo 60, recomendado 65 ou mais se outro monitor usa o mesmo CNPJ)"], ["pasta_monitorada", "Pasta de importação de XML"], ["cadeia_icp_brasil", "Arquivo PEM da cadeia ICP-Brasil (opcional)"], ["porta", "Porta da API local"]];
-  el.innerHTML = `<form id="fs" class="card"><p class="muted">Pasta de dados: <code>${esc(c.diretorio_dados)}</code></p><div class="form">${campos.map(([k, l]) => `<label>${l}<input name="${k}" value="${esc(cf[k] ?? "")}"></label>`).join("")}
+  const intervalos = [60, 65, 80, 120];
+  const iv = intervalos.includes(cf.intervalo_distdfe_min) ? cf.intervalo_distdfe_min : 65;
+  const campoPasta = (k, l, pem) => `<label class="w2">${l}<div class="com-botao"><input name="${k}" value="${esc(cf[k] ?? "")}" ${pem ? `placeholder="opcional"` : ""}><button type="button" class="btn sm" data-nav="${k}" data-pem="${pem ? 1 : ""}">${svg("docs")} Procurar…</button></div></label>`;
+  el.innerHTML = `<form id="fs" class="card"><p class="muted">Pasta de dados: <code>${esc(c.diretorio_dados)}</code></p><div class="form">
+  <label class="w2">Intervalo da busca de NF-e recebidas na SEFAZ<select name="intervalo_distdfe_min">${intervalos.map(m => `<option value="${m}" ${m === iv ? "selected" : ""}>${m} minutos${m === 65 ? " (recomendado)" : m === 120 ? " (outro monitor usa o mesmo CNPJ)" : m === 60 ? " (mínimo permitido pela SEFAZ)" : ""}</option>`).join("")}</select></label>
+  ${campoPasta("pasta_monitorada", "Pasta de importação de XML", false)}
+  ${campoPasta("cadeia_icp_brasil", "Arquivo PEM da cadeia ICP-Brasil", true)}
+  <label>Porta da API local<input name="porta" value="${esc(cf.porta ?? "")}"></label>
   <label>Verificar certificado do servidor da SEFAZ<select name="verificar_tls_sefaz"><option value="1">Sim (recomendado)</option><option value="" ${cf.verificar_tls_sefaz ? "" : "selected"}>Não</option></select></label>
   <label>Atualizar situação das notas emitidas na SEFAZ<select name="consultar_pendentes_sefaz"><option value="1">Sim</option><option value="" ${cf.consultar_pendentes_sefaz ? "" : "selected"}>Não</option></select></label></div>
   <div class="acoes"><button class="btn primary">Salvar</button></div><p class="muted">Alterar a porta exige reiniciar o programa.</p></form>`;
+  $$("[data-nav]", el).forEach(b => b.onclick = () => {
+    const inp = $(`[name=${b.dataset.nav}]`, el);
+    navegador({ inicial: inp.value, arquivo: !!b.dataset.pem, ext: ".pem,.crt,.cer", titulo: b.dataset.pem ? "Escolher arquivo PEM da cadeia ICP-Brasil" : "Escolher a pasta de importação de XML", ok: v => { inp.value = v; } });
+  });
   $("#fs").onsubmit = async ev => { ev.preventDefault(); const o = {};
     for (const [k, v] of new FormData(ev.target)) o[k] = ["verificar_tls_sefaz", "consultar_pendentes_sefaz"].includes(k) ? !!v : (/^(pasta_monitorada|cadeia_icp_brasil)$/.test(k) ? v : +String(v).replace(",", "."));
-    await api("/config", { method: "PUT", json: o }); toast("Configuração salva", "var(--ok)"); };
+    try { await api("/config", { method: "PUT", json: o }); toast("Configuração salva", "var(--ok)"); } catch (e) { toast(esc(e.message), "var(--er)"); } };
 };
+
+// Navegador de pastas/arquivos do computador (o caminho é lido pelo próprio programa).
+function navegador({ inicial, arquivo, ext, titulo, ok }) {
+  modal(`<h3>${esc(titulo)}</h3><div class="nav-cab"><button class="btn sm" id="nv-sobe" title="Pasta acima">↑</button><input id="nv-cam" spellcheck="false"><button class="btn sm" id="nv-ir">Ir</button></div>
+    <div class="nav-corpo"><div class="nav-atalhos" id="nv-at"></div><div class="nav-lista" id="nv-lista"></div></div>
+    <div class="acoes"><span class="muted" id="nv-sel" style="flex:1"></span>${arquivo ? "" : `<button type="button" class="btn" id="nv-nova">${svg("mais")} Nova pasta</button>`}
+    <button class="btn primary" id="nv-ok" ${arquivo ? "disabled" : ""}>${arquivo ? "Selecionar arquivo" : "Selecionar esta pasta"}</button><button type="button" class="btn" onclick="fecharModal()">Cancelar</button></div>`);
+  let atual = "", escolhido = "";
+  const abrir = async c => {
+    try {
+      const r = await api(`/sistema/pastas?caminho=${encodeURIComponent(c)}${arquivo ? "&ext=" + ext : ""}`);
+      atual = r.caminho; $("#nv-cam").value = r.caminho === "*" ? "Este computador" : r.caminho; $("#nv-sobe").disabled = !r.pai;
+      $("#nv-sobe").onclick = () => r.pai && abrir(r.pai);
+      $("#nv-at").innerHTML = r.atalhos.map(a => `<a data-p="${esc(a.caminho)}">${esc(a.nome)}</a>`).join("");
+      $$("#nv-at a").forEach(a => a.onclick = () => abrir(a.dataset.p));
+      $("#nv-lista").innerHTML = [...r.pastas.map(p => `<a class="pasta" data-p="${esc(p.caminho)}">📁 ${esc(p.nome)}</a>`), ...r.arquivos.map(p => `<a class="arq" data-f="${esc(p.caminho)}">📄 ${esc(p.nome)}</a>`)].join("")
+        || `<div class="muted" style="padding:12px">${arquivo ? "Nenhuma subpasta nem arquivo .pem/.crt/.cer aqui." : "Nenhuma subpasta."}</div>`;
+      $$("#nv-lista a.pasta").forEach(a => a.ondblclick = a.onclick = () => abrir(a.dataset.p));
+      $$("#nv-lista a.arq").forEach(a => { a.onclick = () => { $$("#nv-lista a.arq").forEach(x => x.classList.remove("on")); a.classList.add("on"); escolhido = a.dataset.f; $("#nv-ok").disabled = false; $("#nv-sel").textContent = escolhido; }; a.ondblclick = () => { a.onclick(); $("#nv-ok").click(); }; });
+      if (!arquivo) { $("#nv-ok").disabled = atual === "*"; $("#nv-sel").textContent = atual === "*" ? "" : atual; }
+    } catch (e) { toast(esc(e.message), "var(--er)"); if (c !== "") abrir(""); }
+  };
+  $("#nv-ir").onclick = () => abrir($("#nv-cam").value);
+  $("#nv-cam").onkeydown = e => { if (e.key === "Enter") abrir($("#nv-cam").value); };
+  $("#nv-ok").onclick = () => { ok(arquivo ? escolhido : atual); fecharModal(); };
+  const nova = $("#nv-nova");
+  if (nova) nova.onclick = async () => { const n = prompt("Nome da nova pasta:"); if (!n) return; try { const r = await api("/sistema/pastas", { method: "POST", json: { caminho: atual, nome: n } }); abrir(r.caminho); } catch (e) { toast(esc(e.message), "var(--er)"); } };
+  const ini = (inicial || "").trim();
+  abrir(arquivo && ini ? ini.replace(/[\\/][^\\/]*$/, "") : ini);
+}
 
 iniciar();

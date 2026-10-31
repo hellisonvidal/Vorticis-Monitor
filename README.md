@@ -7,7 +7,8 @@ Arquitetura completa (ERD, motor de regras, máquina de estados, endpoints): [`d
 ## Funcionalidades
 - **Menu por tipo de documento** — NF-e/NFC-e, NFS-e e Transporte (CT-e/MDF-e) —, cada um com o seletor destacado **Emitidos | Recebidos | Todos** e a quantidade do período.
 - **Consulta de documentos** com **filtro de período (De/Até)** em todas as telas, atalhos (hoje, 7/30 dias, mês, mês anterior, ano), busca por número/chave/CNPJ/nome, modelo e situação.
-- **Relatórios** (relação de documentos, resumo de tributos, por fornecedor/cliente, por CFOP, manifestação das NF-e recebidas) exportados em **PDF, Excel XLSX, Excel 97-2003 XLS e CSV**.
+- **Relatórios** (relação de documentos, resumo de tributos, por fornecedor/cliente, por CFOP, manifestação das NF-e recebidas) exportados em **PDF, Excel XLSX, Excel 97-2003 XLS e CSV**, com escolha dos **campos exibidos** (botão Campos; a escolha fica salva por relatório).
+- **Salvar senha e login automático** (opcional, na tela de entrada): o computador guarda só uma credencial assinada de 180 dias, invalidada se a senha for trocada.
 - **Exportação selecionada:** marque as notas (ou todas do filtro) e exporte em **XML, PDF ou XML + PDF** (ZIP organizado por modelo e movimento). PDF do DANFE/DACTE/DAMDFE/DANFSe com código de barras.
 - **Recebidos:** busca automática na SEFAZ (Distribuição DF-e), manifestação do destinatário assinada e download do XML completo. Convive com outros monitores de notas que usam o mesmo CNPJ: respeita a regra de 1 hora da SEFAZ, detecta o bloqueio 656 causado por outro sistema e amplia o intervalo automaticamente.
 - **Situação na SEFAZ** e **conferência fiscal** de cada documento (chave, CNPJ/IE, CFOP, NCM/CEST, ICMS, ST, DIFAL, IPI, PIS/COFINS, retenções, contingência).
@@ -19,8 +20,8 @@ São **duas versões separadas** — escolha uma:
 
 | Versão | Arquivo | Para quê |
 |---|---|---|
-| **Instalador** | `instalador/VorticisMonitor-Setup-1.1.0.exe` | Instala o programa para o usuário atual — **não exige administrador** —, com atalhos, inicialização automática opcional e desinstalador. Dados em `%LOCALAPPDATA%\Vorticis\Monitor`. |
-| **Portátil** | `portatil/VorticisMonitor-Portatil-1.1.0.exe` | Arquivo único, sem instalação: coloque numa pasta ou pendrive e abra. Dados na pasta `dados` criada ao lado do arquivo. |
+| **Instalador** | `instalador/VorticisMonitor-Setup-1.2.0.exe` | Instala o programa para o usuário atual — **não exige administrador** —, com atalhos, inicialização automática opcional e desinstalador. Dados em `%LOCALAPPDATA%\Vorticis\Monitor`. |
+| **Portátil** | `portatil/VorticisMonitor-Portatil-1.2.0.exe` | Arquivo único, sem instalação: coloque numa pasta ou pendrive e abra. Dados na pasta `dados` criada ao lado do arquivo. |
 
 `SHA256SUMS.txt` traz os hashes para conferência da integridade.
 

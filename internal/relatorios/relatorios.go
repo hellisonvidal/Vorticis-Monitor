@@ -17,12 +17,14 @@ const (
 	N = 'N'
 )
 
-// Coluna de relatório. Largura em mm no PDF (0 = só na planilha).
+// Coluna de relatório. Largura relativa no PDF; Padrao = exibida sem o
+// usuário escolher os campos.
 type Coluna struct {
 	Titulo  string  `json:"titulo"`
 	Tipo    rune    `json:"-"`
 	TipoStr string  `json:"tipo"`
 	Largura float64 `json:"-"`
+	Padrao  bool    `json:"padrao"`
 }
 
 // Relatorio é o resultado tabular, renderizado em PDF, XLSX, XLS ou CSV.
@@ -33,6 +35,50 @@ type Relatorio struct {
 	Colunas []Coluna `json:"colunas"`
 	Linhas  [][]any  `json:"linhas"`
 	Total   []any    `json:"total,omitempty"`
+	Indices []int    `json:"-"`
+}
+
+// Selecionar mantém só as colunas pedidas (índices na ordem informada). Sem
+// seleção válida, ficam as colunas padrão.
+func (r *Relatorio) Selecionar(idx []int) {
+	var ok []int
+	vistos := map[int]bool{}
+	for _, i := range idx {
+		if i >= 0 && i < len(r.Colunas) && !vistos[i] {
+			ok, vistos[i] = append(ok, i), true
+		}
+	}
+	if len(ok) == 0 {
+		for i, c := range r.Colunas {
+			if c.Padrao {
+				ok = append(ok, i)
+			}
+		}
+	}
+	pega := func(l []any) []any {
+		if l == nil {
+			return nil
+		}
+		n := make([]any, len(ok))
+		for j, i := range ok {
+			n[j] = l[i]
+		}
+		return n
+	}
+	cs := make([]Coluna, len(ok))
+	for j, i := range ok {
+		cs[j] = r.Colunas[i]
+	}
+	for k, l := range r.Linhas {
+		r.Linhas[k] = pega(l)
+	}
+	r.Colunas, r.Total, r.Indices = cs, pega(r.Total), ok
+	// O rótulo "Total" acompanha a primeira coluna de texto exibida.
+	if r.Total != nil && len(r.Total) > 0 {
+		if _, txt := r.Total[0].(string); txt && r.Total[0] == "" {
+			r.Total[0] = "Total"
+		}
+	}
 }
 
 // Tipo de relatório disponível no menu.
@@ -106,7 +152,19 @@ func cols(def ...any) []Coluna {
 	out := []Coluna{}
 	for i := 0; i < len(def); i += 3 {
 		t := def[i+1].(rune)
-		out = append(out, Coluna{Titulo: def[i].(string), Tipo: t, TipoStr: string(t), Largura: def[i+2].(float64)})
+		l := def[i+2].(float64)
+		c := Coluna{Titulo: def[i].(string), Tipo: t, TipoStr: string(t), Largura: l, Padrao: l > 0}
+		if l == 0 { // campo opcional: largura padrão no PDF quando escolhido
+			switch {
+			case c.Titulo == "Chave de acesso":
+				c.Largura = 66
+			case t == M:
+				c.Largura = 20
+			default:
+				c.Largura = 24
+			}
+		}
+		out = append(out, c)
 	}
 	return out
 }
@@ -124,17 +182,22 @@ func Gerar(id string, docs []*store.Documento, itens func(int64) []store.Item, f
 	case "documentos":
 		r.Colunas = cols("Emissão", D, 19.0, "Modelo", T, 13.0, "Número", T, 18.0, "Série", T, 10.0, "Movimento", T, 17.0,
 			"Participante", T, 56.0, "CNPJ/CPF", T, 32.0, "UF", T, 8.0, "Situação", T, 21.0, "Valor total", M, 24.0,
-			"ICMS", M, 20.0, "ICMS-ST", M, 20.0, "IPI", M, 19.0, "PIS", M, 0.0, "COFINS", M, 0.0, "Chave de acesso", T, 0.0)
-		var tv, ti, ts, tp, tpis, tcof float64
+			"ICMS", M, 20.0, "ICMS-ST", M, 20.0, "IPI", M, 19.0, "PIS", M, 0.0, "COFINS", M, 0.0, "Chave de acesso", T, 0.0,
+			"Natureza da operação", T, 0.0, "CFOP principal", T, 0.0, "DIFAL", M, 0.0, "ISS", M, 0.0, "Retenções", M, 0.0,
+			"Autorização", D, 0.0, "Protocolo", T, 0.0, "Manifestação", T, 0.0, "Emitente", T, 0.0, "Destinatário", T, 0.0)
+		var tv, ti, ts, tp, tpis, tcof, tdif, tiss, tret float64
 		for _, d := range docs {
 			nome, doc, uf := participante(d)
 			r.Linhas = append(r.Linhas, []any{data(d.DhEmissao), modelo(d.Modelo), d.Numero, d.Serie, mov(d.Direcao), nome, FormatarDoc(doc), uf,
-				nomesStatus[d.Status], d.ValorTotal, d.ValorICMS, d.ValorST, d.ValorIPI, d.ValorPIS, d.ValorCOFINS, d.Chave})
+				nomesStatus[d.Status], d.ValorTotal, d.ValorICMS, d.ValorST, d.ValorIPI, d.ValorPIS, d.ValorCOFINS, d.Chave,
+				d.Natureza, d.CFOPPrincipal, d.ValorDIFAL, d.ValorISS, d.ValorRetencoes, dataOuVazio(d.DhAutorizacao), d.Protocolo, nomesManif[d.Manifestacao],
+				d.EmitNome, d.DestNome})
 			if autorizado(d) {
 				tv, ti, ts, tp, tpis, tcof = tv+d.ValorTotal, ti+d.ValorICMS, ts+d.ValorST, tp+d.ValorIPI, tpis+d.ValorPIS, tcof+d.ValorCOFINS
+				tdif, tiss, tret = tdif+d.ValorDIFAL, tiss+d.ValorISS, tret+d.ValorRetencoes
 			}
 		}
-		r.Total = []any{"Total", "", "", "", "", fmt.Sprintf("%d documento(s) · soma dos autorizados", len(docs)), "", "", "", tv, ti, ts, tp, tpis, tcof, ""}
+		r.Total = []any{"Total", "", "", "", "", fmt.Sprintf("%d documento(s) · soma dos autorizados", len(docs)), "", "", "", tv, ti, ts, tp, tpis, tcof, "", "", "", tdif, tiss, tret, "", "", "", "", ""}
 	case "tributos":
 		r.Colunas = cols("Documento", T, 26.0, "Movimento", T, 22.0, "Qtd.", N, 14.0, "Valor total", M, 30.0, "ICMS", M, 26.0, "ICMS-ST", M, 26.0,
 			"IPI", M, 24.0, "PIS", M, 24.0, "COFINS", M, 24.0, "DIFAL", M, 24.0, "ISS", M, 24.0)
@@ -274,6 +337,13 @@ func Gerar(id string, docs []*store.Documento, itens func(int64) []store.Item, f
 		r.Linhas = [][]any{}
 	}
 	return r, nil
+}
+
+func dataOuVazio(s string) any {
+	if s == "" {
+		return ""
+	}
+	return data(s)
 }
 
 func chavesOrdenadas[V any](m map[string]V) []string {

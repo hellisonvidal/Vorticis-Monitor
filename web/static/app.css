@@ -106,12 +106,34 @@ label.btn{flex-direction:row;font-size:14px;color:var(--tx)}
 .cert-item.off{opacity:.55;cursor:not-allowed}
 .cert-item input{width:auto;margin-top:3px}
 /* relatórios */
-.rel{display:grid;grid-template-columns:280px 1fr;gap:16px;align-items:start}
-.rel-lista{display:flex;flex-direction:column;gap:8px}
-.rel-lista a{display:flex;flex-direction:column;gap:3px;padding:12px 14px;border-radius:12px;border:1px solid var(--bd);background:var(--card);cursor:pointer;color:var(--tx)}
-.rel-lista a span{font-size:12px;color:var(--mut)}
-.rel-lista a.on{border-color:var(--pri);background:var(--pri-s);box-shadow:inset 3px 0 0 var(--pri)}
 .rel-prev{min-width:0}
 tr.total td{font-weight:700;background:var(--pri-s)}
-@media(max-width:900px){.rel{grid-template-columns:1fr}}
 .rel-prev td{white-space:nowrap;font-size:12.5px;padding-top:8px;padding-bottom:8px}
+/* relatórios: tipos compactos acima da tabela */
+.rel-tipos{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.rel-tipos a{padding:6px 12px;border-radius:999px;border:1px solid var(--bd);background:var(--card);color:var(--mut);font-size:12.5px;cursor:pointer;white-space:nowrap}
+.rel-tipos a:hover{border-color:var(--pri);color:var(--pri)}
+.rel-tipos a.on{background:var(--pri);border-color:var(--pri);color:#fff;font-weight:600}
+.rel-topo{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap}
+.campos-wrap{position:relative}
+.campos{position:absolute;right:0;top:calc(100% + 6px);z-index:12;width:270px;max-height:380px;overflow:auto;background:var(--card);border:1px solid var(--bd);border-radius:12px;box-shadow:0 12px 40px #0f1e2e33;padding:10px 12px;display:flex;flex-direction:column;gap:2px}
+.campos.hidden{display:none}
+.campos-cab{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;font-size:12.5px}
+.campos label{display:flex!important;flex-direction:row!important;align-items:center;gap:8px;font-size:13px;padding:3px 0;color:var(--tx)}
+.campos label input{width:auto}
+.campos .btn{margin-top:8px;align-self:flex-end}
+/* login: salvar senha */
+.lembrar{display:flex;flex-direction:column;gap:6px;font-size:13px}
+.lembrar label{display:flex!important;flex-direction:row!important;align-items:center;gap:8px;color:var(--mut)}
+.lembrar input{width:auto}
+.lembrar a{font-size:12.5px;cursor:pointer}
+/* campo com botão Procurar e navegador de pastas */
+.com-botao{display:flex;gap:6px}.com-botao input{flex:1;min-width:0}
+.nav-cab{display:flex;gap:6px;margin-bottom:10px}.nav-cab input{flex:1;font-family:Consolas,monospace;font-size:12.5px}
+.nav-corpo{display:grid;grid-template-columns:170px 1fr;gap:10px;height:330px}
+.nav-atalhos,.nav-lista{border:1px solid var(--bd);border-radius:10px;overflow:auto;padding:4px}
+.nav-atalhos a,.nav-lista a{display:block;padding:6px 9px;border-radius:7px;cursor:pointer;color:var(--tx);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nav-atalhos a:hover,.nav-lista a:hover{background:var(--pri-s)}
+.nav-lista a.on{background:var(--pri);color:#fff}
+@media(max-width:640px){.nav-corpo{grid-template-columns:1fr;height:auto}}
+#nv-sel{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;font-size:12px}#modal-body .acoes:has(#nv-ok){flex-wrap:nowrap;align-items:center}

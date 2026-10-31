@@ -43,17 +43,35 @@ type sessao struct {
 	Login  string `json:"u"`
 	Perfil string `json:"p"`
 	Exp    int64  `json:"e"`
+	// Credencial salva ("lembrar senha"): Tipo "c" e Chk = resumo do hash da senha,
+	// para que trocar a senha invalide as credenciais salvas.
+	Tipo string `json:"t,omitempty"`
+	Chk  string `json:"k,omitempty"`
 }
 
 func (s *Server) emitirToken(login, perfil string) string {
-	b, _ := json.Marshal(sessao{login, perfil, time.Now().Add(12 * time.Hour).Unix()})
+	return s.assinar(sessao{Login: login, Perfil: perfil, Exp: time.Now().Add(12 * time.Hour).Unix()})
+}
+
+func resumoSenha(hash string) string {
+	h := sha256.Sum256([]byte(hash))
+	return hex.EncodeToString(h[:8])
+}
+
+// emitirCredencial gera a credencial de longa duração (180 dias) guardada no computador.
+func (s *Server) emitirCredencial(login, senhaHash string) string {
+	return s.assinar(sessao{Login: login, Exp: time.Now().Add(180 * 24 * time.Hour).Unix(), Tipo: "c", Chk: resumoSenha(senhaHash)})
+}
+
+func (s *Server) assinar(ss sessao) string {
+	b, _ := json.Marshal(ss)
 	p := base64.RawURLEncoding.EncodeToString(b)
 	m := hmac.New(sha256.New, []byte(s.M.Cfg.SegredoSessao))
 	m.Write([]byte(p))
 	return p + "." + base64.RawURLEncoding.EncodeToString(m.Sum(nil))
 }
 
-func (s *Server) validarToken(t string) (*sessao, error) {
+func (s *Server) lerAssinado(t string) (*sessao, error) {
 	p := strings.SplitN(t, ".", 2)
 	if len(p) != 2 {
 		return nil, errors.New("token inválido")
@@ -70,6 +88,14 @@ func (s *Server) validarToken(t string) (*sessao, error) {
 		return nil, errors.New("sessão expirada")
 	}
 	return &ss, nil
+}
+
+func (s *Server) validarToken(t string) (*sessao, error) {
+	ss, err := s.lerAssinado(t)
+	if err == nil && ss.Tipo != "" {
+		return nil, errors.New("token inválido")
+	}
+	return ss, err
 }
 
 type ctxKey struct{}

@@ -16,6 +16,11 @@
     <div id="setup-campos" class="hidden"><label>Nome<input name="nome"></label></div>
     <label>Usuário<input name="login" required autocomplete="username"></label>
     <label>Senha<input name="senha" type="password" required autocomplete="current-password"></label>
+    <div id="lembrar-campos" class="lembrar">
+      <label><input type="checkbox" name="lembrar" id="ck-lembrar"> Salvar a senha neste computador</label>
+      <label><input type="checkbox" name="auto" id="ck-auto"> Entrar automaticamente ao abrir o programa</label>
+      <a id="esquecer" class="hidden">Esquecer a senha salva</a>
+    </div>
     <button class="btn primary grande" type="submit" id="btn-login">Entrar</button>
     <p class="erro" id="login-erro"></p>
   </form>
