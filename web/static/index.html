@@ -4,51 +4,53 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Vorticis Monitor</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='14' fill='%230f766e'/><path d='M9 10l7 13 7-13' stroke='white' stroke-width='3' fill='none'/></svg>">
+<link rel="icon" href="logo.png">
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
 <div id="login" class="login hidden">
-  <form id="form-login" class="card login-card">
-    <div class="brand big"><span class="logo">V</span> Vorticis Monitor</div>
-    <p class="muted" id="login-sub">Monitor fiscal em tempo real</p>
+  <form id="form-login" class="login-card">
+    <img src="logo.png" alt="" class="login-logo">
+    <h1>Vorticis Monitor</h1>
+    <p class="muted" id="login-sub">Consulta e monitoramento de documentos fiscais</p>
     <div id="setup-campos" class="hidden"><label>Nome<input name="nome"></label></div>
     <label>Usuário<input name="login" required autocomplete="username"></label>
     <label>Senha<input name="senha" type="password" required autocomplete="current-password"></label>
-    <button class="btn primary" type="submit" id="btn-login">Entrar</button>
+    <button class="btn primary grande" type="submit" id="btn-login">Entrar</button>
     <p class="erro" id="login-erro"></p>
   </form>
 </div>
 
 <div id="app" class="hidden">
-  <aside class="side">
-    <div class="brand"><span class="logo">V</span> Vorticis Monitor</div>
-    <nav id="menu">
-      <a data-v="painel" class="ativo">Painel</a>
-      <a data-v="documentos">Documentos</a>
-      <a data-v="rejeicoes">Central de Rejeições</a>
-      <a data-v="alertas">Alertas <span id="badge-alertas" class="badge hidden"></span></a>
-      <a data-v="entradas">Entradas e Compras</a>
-      <a data-v="servicos">Serviços e Transporte</a>
-      <a data-v="apuracao">Apuração e Simuladores</a>
-      <a data-v="relatorios">Relatórios e SPED</a>
-      <a data-v="config">Configurações</a>
-    </nav>
-    <div class="side-foot"><span id="sse" class="dot off"></span> <span id="sse-txt">offline</span><br><a id="sair">Sair</a></div>
+  <aside class="side" id="side">
+    <div class="brand"><img src="logo.png" alt=""><div><b>Vorticis</b><span>Monitor</span></div></div>
+    <nav id="menu"></nav>
+    <button class="recolher" id="recolher" title="Recolher menu"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></button>
   </aside>
-  <main>
+  <div class="principal">
     <header class="top">
-      <select id="empresa-sel"></select>
-      <input id="busca" placeholder="Buscar chave, número, CNPJ, nome…">
-      <label class="btn" for="upload">Importar XML/ZIP<input id="upload" type="file" multiple accept=".xml,.zip" hidden></label>
+      <div><h1 id="titulo">Painel</h1><p class="muted" id="subtitulo"></p></div>
+      <div class="top-acoes">
+        <select id="empresa-sel" title="Empresa"></select>
+        <label class="btn" for="upload" title="Importar XML ou ZIP"><svg viewBox="0 0 24 24"><path d="M12 16V4m0 0l-4 4m4-4l4 4M4 20h16"/></svg> Importar<input id="upload" type="file" multiple accept=".xml,.zip" hidden></label>
+        <span class="status-rt" id="rt" title="Atualização em tempo real"><i></i><span>conectando</span></span>
+        <button class="btn icone" id="sair" title="Sair"><svg viewBox="0 0 24 24"><path d="M15 12H4m0 0l4-4m-4 4l4 4M14 4h5a1 1 0 011 1v14a1 1 0 01-1 1h-5"/></svg></button>
+      </div>
     </header>
-    <div id="banner-cert" class="banner hidden"></div>
-    <section id="view"></section>
-  </main>
+    <div id="banner" class="banner hidden"></div>
+    <main id="view"></main>
+  </div>
 </div>
 
+<div id="selecao" class="selecao hidden">
+  <span id="sel-qtd"></span>
+  <button class="btn" data-exp="xml">Exportar XML</button>
+  <button class="btn" data-exp="pdf">Exportar PDF</button>
+  <button class="btn primary" data-exp="ambos">XML + PDF</button>
+  <button class="btn ghost" id="sel-limpar">Limpar seleção</button>
+</div>
 <div id="drawer" class="drawer hidden"><div class="drawer-body" id="drawer-body"></div></div>
-<div id="modal" class="modal hidden"><div class="card modal-body" id="modal-body"></div></div>
+<div id="modal" class="modal hidden"><div class="modal-body" id="modal-body"></div></div>
 <div id="toasts"></div>
 <script src="app.js"></script>
 </body>

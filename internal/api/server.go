@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
+	"vorticis.com.br/monitor/internal/cadastro"
 	"vorticis.com.br/monitor/internal/fiscal"
-	"vorticis.com.br/monitor/internal/regras"
 	"vorticis.com.br/monitor/internal/relatorios"
 	"vorticis.com.br/monitor/internal/sefaz"
 	"vorticis.com.br/monitor/internal/servicos"
@@ -56,7 +56,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/documentos/importar", fiscalOuAdmin(s.importar))
 	mux.HandleFunc("GET /api/v1/documentos/{chave}", auth(s.obterDocumento))
 	mux.HandleFunc("GET /api/v1/documentos/{chave}/xml", auth(s.baixarXML))
-	mux.HandleFunc("GET /api/v1/documentos/{chave}/danfe", auth(s.danfe))
+	mux.HandleFunc("GET /api/v1/documentos/{chave}/pdf", auth(s.pdf))
+	mux.HandleFunc("GET /api/v1/documentos/{chave}/danfe", auth(s.pdf))
+	mux.HandleFunc("POST /api/v1/documentos/exportar", auth(s.exportar))
+	mux.HandleFunc("GET /api/v1/cadastro/cnpj/{cnpj}", auth(s.consultarCNPJ))
+	mux.HandleFunc("POST /api/v1/cadastro/certificado", admin(s.consultarPorCertificado))
 	mux.HandleFunc("GET /api/v1/documentos/{chave}/ocorrencias", auth(s.ocorrencias))
 	mux.HandleFunc("GET /api/v1/documentos/{chave}/eventos", auth(s.eventos))
 	mux.HandleFunc("GET /api/v1/documentos/{chave}/correcoes", auth(s.correcoes))
@@ -66,17 +70,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/documentos/{chave}/conciliar", fiscalOuAdmin(s.conciliar))
 
 	mux.HandleFunc("POST /api/v1/validacao/pre-emissao", fiscalOuAdmin(s.preEmissao))
-	mux.HandleFunc("POST /api/v1/simulacao/difal", auth(s.simDIFAL))
-	mux.HandleFunc("POST /api/v1/simulacao/icms-st", auth(s.simST))
-	mux.HandleFunc("POST /api/v1/simulacao/retencoes", auth(s.simRetencoes))
 	mux.HandleFunc("GET /api/v1/regras", auth(s.listarRegras))
-
-	mux.HandleFunc("GET /api/v1/rejeicoes", auth(s.rejeicoes))
-	mux.HandleFunc("GET /api/v1/rejeicoes/central", auth(s.centralRejeicoes))
-	mux.HandleFunc("GET /api/v1/rejeicoes/{codigo}", auth(s.rejeicao))
-
-	mux.HandleFunc("GET /api/v1/alertas", auth(s.alertas))
-	mux.HandleFunc("POST /api/v1/alertas/{id}/lido", auth(s.alertaLido))
 
 	mux.HandleFunc("GET /api/v1/captura/status", auth(s.capturaStatus))
 	mux.HandleFunc("POST /api/v1/captura/{id}/executar", fiscalOuAdmin(s.capturaExecutar))
@@ -92,10 +86,6 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/parametros/mva", s.autenticar("FISCAL")(s.salvarMVA))
 	mux.HandleFunc("DELETE /api/v1/parametros/mva/{id}", s.autenticar("FISCAL")(s.removerMVA))
 	mux.HandleFunc("POST /api/v1/parametros/ncm", s.autenticar("FISCAL")(s.importarNCM))
-
-	mux.HandleFunc("GET /api/v1/relatorios", auth(s.catalogoRelatorios))
-	mux.HandleFunc("GET /api/v1/relatorios/{id}", auth(s.relatorio))
-	mux.HandleFunc("GET /api/v1/escrituracao/lancamentos", auth(s.lancamentos))
 
 	mux.HandleFunc("GET /api/v1/integracoes/webhooks", admin(s.listarWebhooks))
 	mux.HandleFunc("POST /api/v1/integracoes/webhooks", admin(s.salvarWebhook))
@@ -151,8 +141,8 @@ func filtro(r *http.Request) store.FiltroDocumentos {
 	f.Pagina, _ = strconv.Atoi(q.Get("pagina"))
 	f.PorPagina, _ = strconv.Atoi(q.Get("por_pagina"))
 	if p := q.Get("periodo"); p != "" {
-		if pr, err := relatorios.ParsePeriodo(p); err == nil {
-			f.De, f.Ate = pr.Ini.Format("2006-01-02"), pr.Fim.Format("2006-01-02")
+		if t, err := time.Parse("2006-01", p); err == nil {
+			f.De, f.Ate = t.Format("2006-01-02"), t.AddDate(0, 1, -1).Format("2006-01-02")
 		}
 	}
 	return f
@@ -452,16 +442,6 @@ func (s *Server) baixarXML(w http.ResponseWriter, r *http.Request) {
 	io.WriteString(w, d.XML)
 }
 
-func (s *Server) danfe(w http.ResponseWriter, r *http.Request) {
-	d := s.doc(w, r)
-	if d == nil {
-		return
-	}
-	its, _ := s.M.Store.Itens(d.ID)
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	relatorios.DANFE(w, d, its)
-}
-
 func (s *Server) ocorrencias(w http.ResponseWriter, r *http.Request) {
 	d := s.doc(w, r)
 	if d == nil {
@@ -592,89 +572,6 @@ func (s *Server) preEmissao(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, out)
 }
 
-func (s *Server) simDIFAL(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Base        float64  `json:"base"`
-		UFOrigem    string   `json:"uf_origem"`
-		UFDestino   string   `json:"uf_destino"`
-		OrigemMerc  string   `json:"origem_mercadoria"`
-		AliqInterna float64  `json:"aliq_interna"`
-		FCP         *float64 `json:"fcp"`
-		Metodo      string   `json:"metodo"`
-	}
-	if err := ler(r, &in); err != nil {
-		erro(w, 400, "JSON inválido")
-		return
-	}
-	p, _ := s.M.Store.UF(strings.ToUpper(in.UFDestino))
-	if in.AliqInterna == 0 {
-		in.AliqInterna = p.AliqInterna
-	}
-	fcp := p.FCP
-	if in.FCP != nil {
-		fcp = *in.FCP
-	}
-	if in.Metodo == "" {
-		in.Metodo = p.DifalMetodo
-	}
-	inter := fiscal.AliquotaInterestadual(strings.ToUpper(in.UFOrigem), strings.ToUpper(in.UFDestino), in.OrigemMerc)
-	jsonOK(w, regras.CalculaDIFAL(in.Base, inter, in.AliqInterna, fcp, in.Metodo))
-}
-
-func (s *Server) simST(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		ValorProdutos                        float64 `json:"valor_produtos"`
-		Frete, Seguro, Outras, Desconto, IPI float64
-		MVAOriginal                          float64 `json:"mva_original"`
-		UFOrigem                             string  `json:"uf_origem"`
-		UFDestino                            string  `json:"uf_destino"`
-		OrigemMerc                           string  `json:"origem_mercadoria"`
-		AliqIntra                            float64 `json:"aliq_intra"`
-		RedBC                                float64 `json:"reducao_bc"`
-		AjustarMVA                           bool    `json:"ajustar_mva"`
-		NCM                                  string  `json:"ncm"`
-	}
-	if err := ler(r, &in); err != nil {
-		erro(w, 400, "JSON inválido")
-		return
-	}
-	ufo, ufd := strings.ToUpper(in.UFOrigem), strings.ToUpper(in.UFDestino)
-	if in.AliqIntra == 0 {
-		p, _ := s.M.Store.UF(ufd)
-		in.AliqIntra = p.AliqInterna
-	}
-	if in.MVAOriginal == 0 && in.NCM != "" {
-		in.MVAOriginal, _ = s.M.Store.MVA(fiscal.SoDigitos(in.NCM), "", ufd, time.Now())
-	}
-	inter := in.AliqIntra
-	if ufo != ufd {
-		inter = fiscal.AliquotaInterestadual(ufo, ufd, in.OrigemMerc)
-	}
-	mva := in.MVAOriginal
-	if in.AjustarMVA && ufo != ufd {
-		mva = regras.MVAAjustada(in.MVAOriginal, inter, in.AliqIntra)
-	}
-	base := in.ValorProdutos + in.Frete + in.Seguro + in.Outras - in.Desconto
-	proprio := base * inter / 100
-	res := regras.CalculaICMSST(base+in.IPI, mva, in.RedBC, in.AliqIntra, proprio)
-	jsonOK(w, map[string]any{"aliq_interestadual": inter, "mva_original": in.MVAOriginal, "mva_aplicada": mva, "resultado": res})
-}
-
-func (s *Server) simRetencoes(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Base    float64 `json:"base"`
-		Servico string  `json:"servico"`
-		Simples bool    `json:"prestador_simples"`
-	}
-	ler(r, &in)
-	si := fiscal.CodigoServicoNormalizado(in.Servico)
-	res := regras.CalculaRetencoes(in.Base, si, fiscal.LC116RetencaoIR1Pct[si], fiscal.LC116CessaoMaoObra[si])
-	if in.Simples {
-		res.IRRF, res.PIS, res.COFINS, res.CSLL = 0, 0, 0, 0
-	}
-	jsonOK(w, map[string]any{"servico": si, "iss_local_prestacao": fiscal.LC116LocalPrestacao[si], "retencoes": res})
-}
-
 func (s *Server) listarRegras(w http.ResponseWriter, r *http.Request) {
 	var out []map[string]string
 	for _, rg := range s.M.Motor.Regras() {
@@ -684,68 +581,6 @@ func (s *Server) listarRegras(w http.ResponseWriter, r *http.Request) {
 }
 
 // ---------- rejeições / alertas ----------
-
-func (s *Server) rejeicoes(w http.ResponseWriter, r *http.Request) {
-	jsonOK(w, fiscal.ListaRejeicoes())
-}
-
-func (s *Server) rejeicao(w http.ResponseWriter, r *http.Request) {
-	c, _ := strconv.Atoi(r.PathValue("codigo"))
-	jsonOK(w, fiscal.DescreveRejeicao(c))
-}
-
-func (s *Server) centralRejeicoes(w http.ResponseWriter, r *http.Request) {
-	f := filtro(r)
-	f.Status = "REJEITADA,DENEGADA,BLOQUEADA"
-	if f.PorPagina == 0 {
-		f.PorPagina = 500
-	}
-	docs, _, err := s.M.Store.ListarDocumentos(f)
-	if err != nil {
-		erro(w, 500, err.Error())
-		return
-	}
-	type grupo struct {
-		Rejeicao   fiscal.Rejeicao    `json:"rejeicao"`
-		Documentos []*store.Documento `json:"documentos"`
-	}
-	ag := map[int]*grupo{}
-	var ordem []int
-	for _, d := range docs {
-		c := d.CStat
-		if d.Status == servicos.StValidacao {
-			c = -1
-		}
-		if ag[c] == nil {
-			rj := fiscal.DescreveRejeicao(c)
-			if c == -1 {
-				rj = fiscal.Rejeicao{Codigo: 0, Categoria: "pre-validacao", Oficial: "Bloqueado na pré-validação do Monitor", Explicacao: "O documento foi reprovado pelo motor de regras antes da transmissão.", Sugestao: "Veja as ocorrências do documento e aplique as correções sugeridas."}
-			}
-			ag[c] = &grupo{Rejeicao: rj}
-			ordem = append(ordem, c)
-		}
-		ag[c].Documentos = append(ag[c].Documentos, d)
-	}
-	out := []*grupo{}
-	for _, c := range ordem {
-		out = append(out, ag[c])
-	}
-	jsonOK(w, out)
-}
-
-func (s *Server) alertas(w http.ResponseWriter, r *http.Request) {
-	a, err := s.M.Store.ListarAlertas(r.URL.Query().Get("abertos") == "1", 500)
-	if err != nil {
-		erro(w, 500, err.Error())
-		return
-	}
-	jsonOK(w, a)
-}
-
-func (s *Server) alertaLido(w http.ResponseWriter, r *http.Request) {
-	s.M.Store.MarcarAlertaLido(idPath(r, "id"))
-	jsonOK(w, map[string]bool{"ok": true})
-}
 
 // ---------- captura / SEFAZ ----------
 
@@ -907,121 +742,147 @@ func (s *Server) importarNCM(w http.ResponseWriter, r *http.Request) {
 
 // ---------- relatórios / escrituração ----------
 
-func (s *Server) catalogoRelatorios(w http.ResponseWriter, r *http.Request) {
-	jsonOK(w, relatorios.Catalogo)
+// ---------- PDF e exportação ----------
+
+func (s *Server) pdf(w http.ResponseWriter, r *http.Request) {
+	d := s.doc(w, r)
+	if d == nil {
+		return
+	}
+	its, _ := s.M.Store.Itens(d.ID)
+	nome := d.Chave
+	if d.Numero != "" {
+		nome = d.Modelo + "_" + d.Numero + "_" + d.Chave
+	}
+	w.Header().Set("Content-Type", "application/pdf")
+	disp := "inline"
+	if r.URL.Query().Get("baixar") == "1" {
+		disp = "attachment"
+	}
+	w.Header().Set("Content-Disposition", disp+`; filename="`+nome+`.pdf"`)
+	if err := relatorios.PDF(w, d, its); err != nil {
+		erro(w, 500, err.Error())
+	}
 }
 
-func (s *Server) relatorio(w http.ResponseWriter, r *http.Request) {
-	f := filtro(r)
-	id := r.PathValue("id")
-	nome := id + "_" + time.Now().Format("20060102_1504")
-	setCSV := func() {
-		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
-		w.Header().Set("Content-Disposition", `attachment; filename="`+nome+`.csv"`)
+// exportar gera um ZIP com os documentos selecionados (chaves) em XML e/ou PDF.
+// Aceita JSON {"chaves":[...],"formato":"xml|pdf|ambos"} ou formulário com os mesmos campos.
+func (s *Server) exportar(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Chaves  []string `json:"chaves"`
+		Formato string   `json:"formato"`
 	}
-	var err error
-	switch id {
-	case "livro-entradas-saidas":
-		setCSV()
-		err = relatorios.LivroEntradasSaidas(w, s.M.Store, f)
-	case "apuracao-icms":
-		setCSV()
-		err = relatorios.ApuracaoICMS(w, s.M.Store, f)
-	case "pis-cofins":
-		setCSV()
-		err = relatorios.PISCOFINS(w, s.M.Store, f)
-	case "retencoes":
-		setCSV()
-		err = relatorios.Retencoes(w, s.M.Store, f)
-	case "inconsistencias":
-		setCSV()
-		err = relatorios.Inconsistencias(w, s.M.Store, f)
-	case "rejeicoes":
-		setCSV()
-		f.Status = "REJEITADA,DENEGADA,BLOQUEADA"
-		err = relatorios.Documentos(w, s.M.Store, f, true)
-	case "manifestacao":
-		setCSV()
-		f.Direcao, f.Modelo = "E", "NFE"
-		f.Status = "AUTORIZADA,RESUMO"
-		err = relatorios.Documentos(w, s.M.Store, f, false)
-	case "contingencia":
-		setCSV()
-		f.Status = "CONTINGENCIA"
-		err = relatorios.Documentos(w, s.M.Store, f, false)
-	case "conciliacao":
-		setCSV()
-		err = relatorios.ConciliacaoCSV(w, s.M.Store)
-	case "efd-icms-ipi", "efd-contribuicoes":
-		per, e := relatorios.ParsePeriodo(r.URL.Query().Get("periodo"))
-		if e != nil || f.EmpresaID == 0 {
-			erro(w, 400, "informe empresa_id e periodo=AAAA-MM")
+	if strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
+		if err := ler(r, &in); err != nil {
+			erro(w, 400, "JSON inválido")
 			return
 		}
-		var buf bytes.Buffer
-		if id == "efd-icms-ipi" {
-			err = relatorios.EFDICMSIPI(&buf, s.M.Store, f.EmpresaID, per, r.URL.Query().Get("leiaute"))
-		} else {
-			err = relatorios.EFDContribuicoes(&buf, s.M.Store, f.EmpresaID, per)
+	} else {
+		r.ParseForm()
+		in.Formato = r.FormValue("formato")
+		for _, c := range strings.Split(r.FormValue("chaves"), ",") {
+			if c = strings.TrimSpace(c); c != "" {
+				in.Chaves = append(in.Chaves, c)
+			}
 		}
-		if err == nil {
-			w.Header().Set("Content-Type", "text/plain; charset=iso-8859-1")
-			w.Header().Set("Content-Disposition", `attachment; filename="`+strings.ToUpper(id)+"_"+per.Ini.Format("200601")+`.txt"`)
-			w.Write(paraLatin1(buf.Bytes()))
-		}
-	case "xml-lote":
-		w.Header().Set("Content-Type", "application/zip")
-		w.Header().Set("Content-Disposition", `attachment; filename="xml_`+nome+`.zip"`)
-		_, err = relatorios.LoteZIP(w, s.M.Store, f, r.URL.Query().Get("danfe") != "0")
-	default:
-		erro(w, 404, "relatório desconhecido")
+	}
+	if len(in.Chaves) == 0 {
+		erro(w, 400, "selecione ao menos um documento")
 		return
 	}
-	if err != nil {
-		erro(w, 500, err.Error())
-	}
-}
-
-// paraLatin1 converte UTF-8 para ISO-8859-1 (codificação exigida pelo SPED).
-func paraLatin1(b []byte) []byte {
-	out := make([]byte, 0, len(b))
-	for _, r := range string(b) {
-		if r < 256 {
-			out = append(out, byte(r))
-		} else {
-			out = append(out, '?')
-		}
-	}
-	return out
-}
-
-// lancamentos é o feed para sistemas de escrituração fiscal (adaptador genérico).
-func (s *Server) lancamentos(w http.ResponseWriter, r *http.Request) {
-	f := filtro(r)
-	f.PorPagina = 5000
-	docs, _, err := s.M.Store.ListarDocumentos(f)
+	comXML, comPDF := in.Formato != "pdf", in.Formato != "xml"
+	nome := "documentos_" + time.Now().Format("20060102_150405")
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+nome+`.zip"`)
+	n, err := relatorios.ExportarZIP(w, s.M.Store, in.Chaves, comXML, comPDF)
 	if err != nil {
 		erro(w, 500, err.Error())
 		return
 	}
-	type lanc struct {
-		*store.Documento
-		Itens      []store.Item `json:"itens"`
-		CodSitSPED string       `json:"cod_sit_sped"`
+	s.M.Store.Auditar(usuario(r), "EXPORTAR", "documento", "", fmt.Sprintf("%d documento(s) em %s", n, map[bool]string{true: "XML+PDF", false: in.Formato}[comXML && comPDF]))
+}
+
+// ---------- cadastro pelo CNPJ ----------
+
+// consultarCNPJ busca os dados da Receita e as IEs (SEFAZ com o certificado de
+// uma empresa já cadastrada de mesmo CNPJ-base, quando houver).
+func (s *Server) consultarCNPJ(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	defer cancel()
+	d, err := cadastro.ConsultarCNPJ(ctx, r.PathValue("cnpj"))
+	if err != nil {
+		erro(w, 502, err.Error())
+		return
 	}
-	out := []lanc{}
-	for _, d := range docs {
-		if d.Resumo || d.Status == servicos.StValidacao || d.Status == servicos.StPendente || d.Status == servicos.StRejeitada {
-			continue
+	emps, _ := s.M.Store.ListarEmpresas()
+	for _, e := range emps {
+		if e.TemCertificado && len(e.CNPJ) == 14 && e.CNPJ[:8] == d.CNPJ[:8] {
+			if cli, _, err := s.M.ClienteSefaz(e.ID); err == nil {
+				s.mesclarSEFAZ(ctx, cli, d)
+			}
+			break
 		}
-		its, _ := s.M.Store.Itens(d.ID)
-		cs := map[string]string{servicos.StCancelada: "02", servicos.StDenegada: "04", servicos.StInutilizada: "05"}[d.Status]
-		if cs == "" {
-			cs = "00"
-		}
-		out = append(out, lanc{Documento: d, Itens: its, CodSitSPED: cs})
 	}
-	jsonOK(w, map[string]any{"versao_layout": "vorticis-escrituracao-1", "quantidade": len(out), "lancamentos": out})
+	d.Avisos = append(d.Avisos, "Conferência manual da IE: "+cadastro.URLSintegra(d.UF))
+	jsonOK(w, d)
+}
+
+// consultarPorCertificado lê o certificado A1 (multipart: arquivo, senha), identifica o
+// CNPJ e consulta Receita + SEFAZ da UF. O certificado não é gravado aqui.
+func (s *Server) consultarPorCertificado(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseMultipartForm(10 << 20); err != nil {
+		erro(w, 400, "envie o arquivo .pfx e a senha")
+		return
+	}
+	f, _, err := r.FormFile("arquivo")
+	if err != nil {
+		erro(w, 400, "arquivo .pfx/.p12 não enviado")
+		return
+	}
+	defer f.Close()
+	pfx, _ := io.ReadAll(io.LimitReader(f, 10<<20))
+	cert, err := sefaz.CarregarPFX(pfx, r.FormValue("senha"))
+	if err != nil {
+		erro(w, 400, err.Error())
+		return
+	}
+	if !cert.Valido() {
+		erro(w, 400, "certificado fora da validade ("+cert.Validade.Format("02/01/2006")+")")
+		return
+	}
+	if !fiscal.ValidaCNPJ(cert.CNPJ) {
+		erro(w, 400, "não foi possível identificar o CNPJ no certificado (e-CNPJ)")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	defer cancel()
+	d, err := cadastro.ConsultarCNPJ(ctx, cert.CNPJ)
+	if err != nil {
+		d = &cadastro.Dados{CNPJ: cert.CNPJ, RazaoSocial: strings.TrimSpace(strings.SplitN(cert.Titular, ":", 2)[0])}
+		d.Avisos = append(d.Avisos, "Dados da Receita indisponíveis: "+err.Error())
+	}
+	if d.UF != "" {
+		s.mesclarSEFAZ(ctx, sefaz.NovoCliente(cert, 1, s.M.Cfg.VerificarTLSSefaz, s.M.Cfg.CadeiaICPBrasil), d)
+	}
+	d.Avisos = append(d.Avisos, "Conferência manual da IE: "+cadastro.URLSintegra(d.UF))
+	jsonOK(w, map[string]any{"dados": d, "certificado": map[string]any{"titular": cert.Titular, "cnpj": cert.CNPJ, "emissor": cert.Emissor,
+		"valido_ate": cert.Validade.Format(time.RFC3339), "dias_restantes": int(time.Until(cert.Validade).Hours() / 24)}})
+}
+
+func (s *Server) mesclarSEFAZ(ctx context.Context, cli *sefaz.Cliente, d *cadastro.Dados) {
+	cs, err := cli.ConsultaCadastro(ctx, d.UF, d.CNPJ)
+	if err != nil {
+		d.Avisos = append(d.Avisos, "Consulta de cadastro na SEFAZ-"+d.UF+": "+err.Error())
+		return
+	}
+	var ies []cadastro.Inscricao
+	for _, c := range cs {
+		ies = append(ies, cadastro.Inscricao{IE: fiscal.SoDigitos(c.IE), UF: c.UF, Ativa: c.CSit == "1", Fonte: "SEFAZ-" + d.UF + " (certificado)", Regime: c.XRegApur})
+		if d.CodMun == "" {
+			d.CodMun = c.Ender.CMun
+		}
+	}
+	d.MesclarSEFAZ(d.UF, ies)
 }
 
 // ---------- integrações / usuários / config ----------

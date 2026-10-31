@@ -44,7 +44,7 @@ import (
 const nomeServico = "VorticisMonitor"
 
 var (
-	portatil     bool
+	portatil   bool
 	minimizado bool
 	semJanela  bool
 )

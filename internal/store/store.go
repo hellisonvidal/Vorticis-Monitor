@@ -592,9 +592,6 @@ type Resumo struct {
 	PorModelo       map[string]int     `json:"por_modelo"`
 	ValorPorDir     map[string]float64 `json:"valor_por_direcao"`
 	Tributos        map[string]float64 `json:"tributos"`
-	TopRejeicoes    []map[string]any   `json:"top_rejeicoes"`
-	TopRegras       []map[string]any   `json:"top_regras"`
-	AlertasAbertos  int                `json:"alertas_abertos"`
 	ScoreMedio      float64            `json:"score_medio"`
 	Total           int                `json:"total"`
 	ComErro         int                `json:"com_erro"`
@@ -645,80 +642,7 @@ func (s *Store) Resumo(f FiltroDocumentos) (*Resumo, error) {
 		}
 		r.ScoreMedio, r.ComErro, r.SemManifestacao, r.Divergentes = v[8].Float64, int(e.Int64), int(m.Int64), int(dv.Int64)
 	})
-	q(`SELECT c_stat, COUNT(*) n FROM documento WHERE `+w+` AND status IN ('REJEITADA','DENEGADA') GROUP BY c_stat ORDER BY n DESC LIMIT 10`, func(rs *sql.Rows) {
-		var c, n int
-		rs.Scan(&c, &n)
-		rj := fiscal.DescreveRejeicao(c)
-		r.TopRejeicoes = append(r.TopRejeicoes, map[string]any{"codigo": c, "quantidade": n, "descricao": rj.Oficial})
-	})
-	q(`SELECT o.regra, o.severidade, MIN(o.mensagem), COUNT(*) n FROM ocorrencia o JOIN documento ON documento.id = o.documento_id WHERE `+w+` AND o.severidade <> 'INFO' GROUP BY o.regra, o.severidade ORDER BY n DESC LIMIT 10`, func(rs *sql.Rows) {
-		var rg, sv, msg string
-		var n int
-		rs.Scan(&rg, &sv, &msg, &n)
-		r.TopRegras = append(r.TopRegras, map[string]any{"regra": rg, "severidade": sv, "exemplo": msg, "quantidade": n})
-	})
-	s.DB.QueryRow(`SELECT COUNT(*) FROM alerta WHERE lido = 0`).Scan(&r.AlertasAbertos)
 	return r, nil
-}
-
-// ---------------- Alertas ----------------
-
-type AlertaReg struct {
-	ID          int64  `json:"id"`
-	EmpresaID   int64  `json:"empresa_id"`
-	DocumentoID int64  `json:"documento_id"`
-	Chave       string `json:"chave,omitempty"`
-	Tipo        string `json:"tipo"`
-	Severidade  string `json:"severidade"`
-	Titulo      string `json:"titulo"`
-	Mensagem    string `json:"mensagem"`
-	VenceEm     string `json:"vence_em"`
-	Lido        bool   `json:"lido"`
-	CreatedAt   string `json:"created_at"`
-	ChaveUnica  string `json:"-"`
-}
-
-// CriarAlerta insere um alerta se a chave única ainda não existir. Retorna true se criado.
-func (s *Store) CriarAlerta(a AlertaReg) (bool, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	r, err := s.DB.Exec(`INSERT OR IGNORE INTO alerta (empresa_id, documento_id, tipo, severidade, titulo, mensagem, vence_em, chave_unica) VALUES (?,?,?,?,?,?,?,?)`,
-		a.EmpresaID, a.DocumentoID, a.Tipo, a.Severidade, a.Titulo, a.Mensagem, a.VenceEm, a.ChaveUnica)
-	if err != nil {
-		return false, err
-	}
-	n, _ := r.RowsAffected()
-	return n > 0, nil
-}
-
-func (s *Store) ListarAlertas(soAbertos bool, limite int) ([]AlertaReg, error) {
-	w := "1=1"
-	if soAbertos {
-		w = "a.lido = 0"
-	}
-	if limite <= 0 {
-		limite = 200
-	}
-	rows, err := s.DB.Query(`SELECT a.id, COALESCE(a.empresa_id,0), COALESCE(a.documento_id,0), COALESCE(d.chave,''), a.tipo, a.severidade, a.titulo, COALESCE(a.mensagem,''), COALESCE(a.vence_em,''), a.lido, a.created_at
-		FROM alerta a LEFT JOIN documento d ON d.id = a.documento_id WHERE `+w+` ORDER BY a.lido, CASE a.severidade WHEN 'ERRO' THEN 0 WHEN 'ALERTA' THEN 1 ELSE 2 END, a.id DESC LIMIT ?`, limite)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []AlertaReg{}
-	for rows.Next() {
-		var a AlertaReg
-		rows.Scan(&a.ID, &a.EmpresaID, &a.DocumentoID, &a.Chave, &a.Tipo, &a.Severidade, &a.Titulo, &a.Mensagem, &a.VenceEm, &a.Lido, &a.CreatedAt)
-		out = append(out, a)
-	}
-	return out, nil
-}
-
-func (s *Store) MarcarAlertaLido(id int64) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	_, err := s.DB.Exec(`UPDATE alerta SET lido = 1 WHERE id = ?`, id)
-	return err
 }
 
 // ---------------- NSU ----------------
@@ -1146,7 +1070,7 @@ func (s *Store) ListarAuditoria(limite int) ([]map[string]any, error) {
 type Webhook struct {
 	ID      int64  `json:"id"`
 	URL     string `json:"url"`
-	Eventos string `json:"eventos"` // csv: documento.novo,documento.status,alerta.novo
+	Eventos string `json:"eventos"` // csv: documento.novo,documento.status,captura.ciclo
 	Segredo string `json:"segredo,omitempty"`
 	Ativo   bool   `json:"ativo"`
 }

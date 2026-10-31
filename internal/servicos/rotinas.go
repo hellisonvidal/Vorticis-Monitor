@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"vorticis.com.br/monitor/internal/fiscal"
-	"vorticis.com.br/monitor/internal/regras"
 	"vorticis.com.br/monitor/internal/store"
 )
 
@@ -81,142 +80,6 @@ func (m *Monitor) CapturarDistDFe(ctx context.Context, empresaID int64, forcar b
 	res.UltNSU, res.MaxNSU, res.Proxima = n.UltNSU, n.MaxNSU, n.ProximaConsulta
 	m.Hub.Publicar("captura.ciclo", res)
 	return res, nil
-}
-
-// ---------------- Alertas de prazos e situações ----------------
-
-// VarrerAlertas gera alertas de prazos (cancelamento, manifestação), certificado,
-// contingência pendente, MDF-e sem encerramento e rejeições não tratadas.
-func (m *Monitor) VarrerAlertas() int {
-	criados := 0
-	criar := func(a store.AlertaReg) {
-		if ok, _ := m.Store.CriarAlerta(a); ok {
-			criados++
-			m.Hub.Publicar("alerta.novo", a)
-		}
-	}
-	agora := time.Now()
-	ant := time.Duration(m.Cfg.AntecedenciaAlertaHoras) * time.Hour
-
-	// Empresas: certificado ausente ou vencendo
-	emps, _ := m.Store.ListarEmpresas()
-	for _, e := range emps {
-		c, err := m.Store.CertificadoAtivo(e.ID)
-		if err != nil {
-			criar(store.AlertaReg{EmpresaID: e.ID, Tipo: "CERTIFICADO_AUSENTE", Severidade: "ALERTA", Titulo: "Inclua o certificado digital de " + e.RazaoSocial,
-				Mensagem: "Sem certificado A1 o Monitor não consegue consultar a SEFAZ, capturar XMLs destinados (DF-e) nem manifestar. Acesse Configurações › Certificado.", ChaveUnica: fmt.Sprintf("CERT_AUSENTE:%d", e.ID)})
-			continue
-		}
-		if c.DiasRestantes <= m.Cfg.DiasAlertaCertificado {
-			sev := "ALERTA"
-			if c.DiasRestantes <= 7 {
-				sev = "ERRO"
-			}
-			criar(store.AlertaReg{EmpresaID: e.ID, Tipo: "CERTIFICADO_VENCENDO", Severidade: sev, Titulo: fmt.Sprintf("Certificado de %s vence em %d dia(s)", e.RazaoSocial, c.DiasRestantes),
-				Mensagem: "Validade: " + c.ValidoAte, VenceEm: c.ValidoAte, ChaveUnica: fmt.Sprintf("CERT_VENC:%d:%s:%d", e.ID, c.Serial, c.DiasRestantes/7)})
-		}
-	}
-
-	docs, _, _ := m.Store.ListarDocumentos(store.FiltroDocumentos{Status: "AUTORIZADA,CONTINGENCIA,REJEITADA,RESUMO,PENDENTE", PorPagina: 5000, De: agora.AddDate(0, 0, -200).Format("2006-01-02")})
-	for _, d := range docs {
-		var emp int64
-		if d.EmpresaID != nil {
-			emp = *d.EmpresaID
-		}
-		base := store.AlertaReg{EmpresaID: emp, DocumentoID: d.ID}
-		emissao := regras.ParseData(d.DhEmissao)
-		aut := regras.ParseData(d.DhAutorizacao)
-		if aut.IsZero() {
-			aut = emissao
-		}
-		switch {
-		// Prazo de cancelamento de documentos emitidos com inconsistências
-		case d.Status == StAutorizada && d.Direcao == "S" && (d.Modelo == "NFE" || d.Modelo == "NFCE") && d.Erros > 0:
-			prazo := time.Duration(m.Cfg.PrazoCancelNFeHoras) * time.Hour
-			if d.Modelo == "NFCE" {
-				prazo = time.Duration(m.Cfg.PrazoCancelNFCeMin) * time.Minute
-			}
-			fim := aut.Add(prazo)
-			if agora.Before(fim) && fim.Sub(agora) <= max(ant, prazo/2) {
-				a := base
-				a.Tipo, a.Severidade, a.VenceEm = "PRAZO_CANCELAMENTO", "ERRO", fim.Format(time.RFC3339)
-				a.Titulo = fmt.Sprintf("Prazo de cancelamento da %s nº %s termina em %s", d.Modelo, d.Numero, restante(fim.Sub(agora)))
-				a.Mensagem = fmt.Sprintf("O documento possui %d inconsistência(s). Avalie cancelar ou emitir CC-e antes do prazo.", d.Erros)
-				a.ChaveUnica = "PRAZO_CANCEL:" + d.Chave
-				criar(a)
-			}
-		// Manifestação do destinatário
-		case d.Direcao == "E" && d.Modelo == "NFE" && (d.Manifestacao == "" || d.Manifestacao == "CIENCIA") && d.Status != StCancelada:
-			fim := aut.AddDate(0, 0, m.Cfg.PrazoManifestacaoDias)
-			dias := fim.Sub(agora).Hours() / 24
-			if dias <= 15 && dias > 0 {
-				a := base
-				a.Tipo, a.Severidade, a.VenceEm = "PRAZO_MANIFESTACAO", "ALERTA", fim.Format(time.RFC3339)
-				if dias <= 5 {
-					a.Severidade = "ERRO"
-				}
-				a.Titulo = fmt.Sprintf("Manifestação conclusiva da NF-e nº %s (%s) vence em %.0f dia(s)", d.Numero, d.EmitNome, math.Ceil(dias))
-				a.Mensagem = "Registre Confirmação, Desconhecimento ou Operação não Realizada."
-				a.ChaveUnica = fmt.Sprintf("PRAZO_MANIF:%s:%d", d.Chave, int(dias)/5)
-				criar(a)
-			}
-			if d.Resumo && agora.Sub(aut) > time.Duration(m.Cfg.PrazoCienciaDias)*24*time.Hour {
-				a := base
-				a.Tipo, a.Severidade = "XML_NAO_BAIXADO", "ALERTA"
-				a.Titulo = fmt.Sprintf("NF-e nº %s de %s sem XML completo há mais de %d dias", d.Numero, d.EmitNome, m.Cfg.PrazoCienciaDias)
-				a.Mensagem = "Manifeste Ciência da Operação para liberar o download do XML."
-				a.ChaveUnica = "XML_PEND:" + d.Chave
-				criar(a)
-			}
-		case d.Status == StContingencia:
-			h := agora.Sub(emissao).Hours()
-			if h >= 12 {
-				a := base
-				a.Tipo, a.Severidade = "CONTINGENCIA_PENDENTE", "ALERTA"
-				if h >= 24 {
-					a.Severidade = "ERRO"
-				}
-				a.Titulo = fmt.Sprintf("%s nº %s em contingência (%s) há %.0f h sem autorização", d.Modelo, d.Numero, fiscal.DescricaoTpEmis[d.TpEmis], h)
-				a.Mensagem = "Transmita o documento assim que a SEFAZ normalizar."
-				a.ChaveUnica = fmt.Sprintf("CONT:%s:%d", d.Chave, int(h)/12)
-				criar(a)
-			}
-		case d.Status == StRejeitada && agora.Sub(regras.ParseData(d.UpdatedAt)) > time.Hour:
-			r := fiscal.DescreveRejeicao(d.CStat)
-			a := base
-			a.Tipo, a.Severidade = "REJEICAO_NAO_TRATADA", "ALERTA"
-			a.Titulo = fmt.Sprintf("Rejeição %d da %s nº %s sem tratamento há mais de 1 h", d.CStat, d.Modelo, d.Numero)
-			a.Mensagem = r.Sugestao
-			a.ChaveUnica = "REJ_PEND:" + d.Chave
-			criar(a)
-		case d.Modelo == "MDFE" && d.Status == StAutorizada && agora.Sub(emissao) > 5*24*time.Hour:
-			if evs, _ := m.Store.Eventos(d.Chave); !temEvento(evs, "110112") {
-				a := base
-				a.Tipo, a.Severidade = "MDFE_NAO_ENCERRADO", "ALERTA"
-				a.Titulo = fmt.Sprintf("MDF-e nº %s autorizado há %.0f dias sem encerramento", d.Numero, agora.Sub(emissao).Hours()/24)
-				a.Mensagem = "MDF-e em aberto pode bloquear novas emissões para o mesmo veículo/percurso."
-				a.ChaveUnica = "MDFE_ABERTO:" + d.Chave
-				criar(a)
-			}
-		}
-	}
-	return criados
-}
-
-func temEvento(evs []store.Evento, tp string) bool {
-	for _, e := range evs {
-		if e.TpEvento == tp && (e.CStat == 135 || e.CStat == 136) {
-			return true
-		}
-	}
-	return false
-}
-
-func restante(d time.Duration) string {
-	if d < time.Hour {
-		return fmt.Sprintf("%d min", int(d.Minutes()))
-	}
-	return fmt.Sprintf("%.1f h", d.Hours())
 }
 
 // ConsultarPendentes atualiza a situação de documentos emitidos sem retorno.
@@ -340,12 +203,6 @@ func (m *Monitor) Conciliar(chave, ordemRecebimento string) (*store.Conciliacao,
 		}
 		m.Store.AtualizarStatusPedido(p.ID)
 	}
-	if c.Status == "DIVERGENTE" {
-		if ok, _ := m.Store.CriarAlerta(store.AlertaReg{EmpresaID: *d.EmpresaID, DocumentoID: d.ID, Tipo: "CONCILIACAO_DIVERGENTE", Severidade: "ALERTA",
-			Titulo: fmt.Sprintf("NF-e nº %s de %s diverge do pedido %s", d.Numero, d.EmitNome, p.Numero), Mensagem: fmt.Sprintf("%d divergência(s) na conciliação", len(divs)), ChaveUnica: "CONC:" + chave}); ok {
-			m.Hub.Publicar("alerta.novo", c)
-		}
-	}
 	// Revalida com a finalidade de cada item (DIFAL de uso/consumo e ativo).
 	m.Revalidar(chave, finalidades)
 	m.Hub.Publicar("documento.status", map[string]any{"chave": chave, "conciliacao": c.Status})
@@ -401,7 +258,6 @@ func (m *Monitor) executarCiclo(ctx context.Context, ciclo int) {
 		}
 	}()
 	m.ProcessarPastaMonitorada()
-	m.VarrerAlertas()
 	if ciclo%5 == 0 {
 		if m.Cfg.ConsultarPendentesSefaz {
 			m.ConsultarPendentes(ctx, 50)

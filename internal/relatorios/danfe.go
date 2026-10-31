@@ -1,10 +1,13 @@
+// Package relatorios gera a representação em PDF dos documentos (DANFE/DACTE/
+// DAMDFE/DANFSe simplificados) e a exportação em lote (ZIP) de XML e PDF.
 package relatorios
 
 import (
 	"fmt"
-	"html/template"
 	"io"
 	"strings"
+
+	"github.com/go-pdf/fpdf"
 
 	"vorticis.com.br/monitor/internal/fiscal"
 	"vorticis.com.br/monitor/internal/regras"
@@ -21,8 +24,8 @@ var code128 = strings.Fields(`212222 222122 222221 121223 121322 131222 122213 1
 111242 121142 121241 114212 124112 124211 411212 421112 421211 212141 214121 412121 111143 111341
 131141 114113 114311 411113 411311 113141 114131 311141 411131 211412 211214 211232 2331112`)
 
-// Code128C gera o SVG do código de barras (subconjunto C, numérico de comprimento par).
-func Code128C(num string, altura int) template.HTML {
+// barras128C devolve as larguras (em módulos) de barras e espaços do Code 128-C.
+func barras128C(num string) []int {
 	num = fiscal.SoDigitos(num)
 	if len(num)%2 == 1 {
 		num = "0" + num
@@ -35,19 +38,16 @@ func Code128C(num string, altura int) template.HTML {
 		soma += val * (i/2 + 1)
 	}
 	codes = append(codes, soma%103, 106)
-	var b strings.Builder
-	x := 10 // zona de silêncio
+	var out []int
 	for _, c := range codes {
-		for j, ch := range code128[c] {
-			w := int(ch - '0')
-			if j%2 == 0 {
-				fmt.Fprintf(&b, `<rect x="%d" y="0" width="%d" height="%d"/>`, x, w, altura)
-			}
-			x += w
+		for _, ch := range code128[c] {
+			out = append(out, int(ch-'0'))
 		}
 	}
-	return template.HTML(fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %d %d" width="100%%" height="%d" preserveAspectRatio="none">%s</svg>`, x+10, altura, altura, b.String()))
+	return out
 }
+
+func f2(x float64) string { return strings.Replace(fmt.Sprintf("%.2f", x), ".", ",", 1) }
 
 func formatarChave(c string) string {
 	var p []string
@@ -57,96 +57,225 @@ func formatarChave(c string) string {
 	return strings.Join(p, " ")
 }
 
-var tplDANFE = template.Must(template.New("danfe").Funcs(template.FuncMap{
-	"v":     func(x float64) string { return f2(x) },
-	"q":     func(x float64) string { return strings.Replace(fmt.Sprintf("%.4f", x), ".", ",", 1) },
-	"chave": formatarChave,
-	"data": func(s string) string {
-		t := regras.ParseData(s)
-		if t.IsZero() {
-			return s
-		}
-		return t.Format("02/01/2006 15:04")
-	},
-	"doc": func(d string) string {
-		d = fiscal.NormalizaCNPJ(d)
-		if len(d) == 14 {
-			return d[0:2] + "." + d[2:5] + "." + d[5:8] + "/" + d[8:12] + "-" + d[12:]
-		}
-		if len(d) == 11 {
-			return d[0:3] + "." + d[3:6] + "." + d[6:9] + "-" + d[9:]
-		}
-		return d
-	},
-}).Parse(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>{{.Titulo}} {{.D.Numero}}</title>
-<style>
-body{font:10px Arial,Helvetica,sans-serif;margin:8mm;color:#000}
-.box{border:1px solid #000;padding:3px 5px;margin:-1px 0 0 -1px}
-.row{display:flex}.row>.box{flex:1}
-.lbl{font-size:7px;text-transform:uppercase;color:#333}
-.val{font-size:10px;font-weight:bold;min-height:12px}
-h1{font-size:14px;margin:0}table{border-collapse:collapse;width:100%;margin-top:4px}
-th,td{border:1px solid #000;padding:2px 3px;font-size:8px}th{background:#eee}
-td.n{text-align:right}.aviso{color:#b00;font-weight:bold;text-align:center;font-size:12px;margin:4px 0}
-@media print{body{margin:5mm}.np{display:none}}
-</style></head><body>
-<div class="np" style="text-align:right;margin-bottom:6px"><button onclick="print()">Imprimir / Salvar PDF</button></div>
-{{if .Aviso}}<div class="aviso">{{.Aviso}}</div>{{end}}
-<div class="row">
- <div class="box" style="flex:2"><div class="lbl">Emitente</div><div class="val" style="font-size:13px">{{.D.EmitNome}}</div>{{doc .D.EmitDoc}} — {{.D.EmitUF}}</div>
- <div class="box" style="flex:1;text-align:center"><h1>{{.Titulo}}</h1><div>{{.Subtitulo}}</div><div>{{if eq .D.Direcao "E"}}0 - ENTRADA{{else}}1 - SAÍDA{{end}}</div><div class="val">Nº {{.D.Numero}} Série {{.D.Serie}}</div></div>
- <div class="box" style="flex:2">{{if .Barras}}<div style="height:40px">{{.Barras}}</div>{{end}}<div class="lbl">Chave de acesso</div><div class="val">{{chave .D.Chave}}</div>
-  <div class="lbl">Consulta de autenticidade no portal nacional da NF-e ou no site da SEFAZ autorizadora</div></div>
-</div>
-<div class="row"><div class="box" style="flex:2"><div class="lbl">Natureza da operação</div><div class="val">{{.D.Natureza}}</div></div>
- <div class="box"><div class="lbl">Protocolo de autorização de uso</div><div class="val">{{.D.Protocolo}} {{data .D.DhAutorizacao}}</div></div></div>
-<div class="row"><div class="box" style="flex:3"><div class="lbl">Destinatário / Remetente</div><div class="val">{{.D.DestNome}}</div></div>
- <div class="box"><div class="lbl">CNPJ/CPF</div><div class="val">{{doc .D.DestDoc}}</div></div>
- <div class="box"><div class="lbl">UF</div><div class="val">{{.D.DestUF}}</div></div>
- <div class="box"><div class="lbl">Data de emissão</div><div class="val">{{data .D.DhEmissao}}</div></div></div>
-<div class="row">
- <div class="box"><div class="lbl">Valor ICMS</div><div class="val">{{v .D.ValorICMS}}</div></div>
- <div class="box"><div class="lbl">Valor ICMS-ST</div><div class="val">{{v .D.ValorST}}</div></div>
- <div class="box"><div class="lbl">Valor IPI</div><div class="val">{{v .D.ValorIPI}}</div></div>
- <div class="box"><div class="lbl">PIS</div><div class="val">{{v .D.ValorPIS}}</div></div>
- <div class="box"><div class="lbl">COFINS</div><div class="val">{{v .D.ValorCOFINS}}</div></div>
- {{if .D.ValorDIFAL}}<div class="box"><div class="lbl">ICMS UF destino (DIFAL)</div><div class="val">{{v .D.ValorDIFAL}}</div></div>{{end}}
- {{if .D.ValorISS}}<div class="box"><div class="lbl">ISS</div><div class="val">{{v .D.ValorISS}}</div></div>{{end}}
- <div class="box"><div class="lbl">Valor total</div><div class="val" style="font-size:12px">{{v .D.ValorTotal}}</div></div>
-</div>
-{{if .Itens}}<table><thead><tr><th>Cód.</th><th>Descrição</th><th>NCM</th><th>CST</th><th>CFOP</th><th>Un</th><th>Qtd</th><th>V. Unit</th><th>V. Total</th><th>BC ICMS</th><th>ICMS</th><th>IPI</th><th>% ICMS</th></tr></thead><tbody>
-{{range .Itens}}<tr><td>{{.CodProd}}</td><td>{{.Descricao}}</td><td>{{.NCM}}</td><td>{{.CSTICMS}}</td><td>{{.CFOP}}</td><td>{{.Unidade}}</td><td class="n">{{q .Quantidade}}</td><td class="n">{{q .ValorUnit}}</td><td class="n">{{v .ValorTotal}}</td><td class="n">{{v .VBC}}</td><td class="n">{{v .VICMS}}</td><td class="n">{{v .VIPI}}</td><td class="n">{{v .PICMS}}</td></tr>{{end}}
-</tbody></table>{{end}}
-<div class="box" style="margin-top:4px"><div class="lbl">Dados adicionais</div>Documento gerado pelo Vorticis Monitor a partir do XML autorizado — representação simplificada para conferência. Status: {{.D.Status}}{{if .D.XMotivo}} ({{.D.XMotivo}}){{end}}.</div>
-</body></html>`))
-
-// DANFE escreve a representação gráfica simplificada (HTML imprimível) do documento.
-func DANFE(w io.Writer, d *store.Documento, itens []store.Item) error {
-	titulo, sub := "DANFE", "Documento Auxiliar da Nota Fiscal Eletrônica"
-	switch d.Modelo {
-	case "NFCE":
-		titulo, sub = "DANFE NFC-e", "Documento Auxiliar da NFC-e"
-	case "CTE":
-		titulo, sub = "DACTE", "Documento Auxiliar do Conhecimento de Transporte Eletrônico"
-	case "MDFE":
-		titulo, sub = "DAMDFE", "Documento Auxiliar do Manifesto Eletrônico de Documentos Fiscais"
-	case "NFSE":
-		titulo, sub = "DANFSe", "Documento Auxiliar da NFS-e"
+func formatarDoc(d string) string {
+	d = fiscal.NormalizaCNPJ(d)
+	switch len(d) {
+	case 14:
+		return d[0:2] + "." + d[2:5] + "." + d[5:8] + "/" + d[8:12] + "-" + d[12:]
+	case 11:
+		return d[0:3] + "." + d[3:6] + "." + d[6:9] + "-" + d[9:]
 	}
-	aviso := ""
+	return d
+}
+
+func formatarData(s string) string {
+	t := regras.ParseData(s)
+	if t.IsZero() {
+		return s
+	}
+	return t.Format("02/01/2006 15:04")
+}
+
+func titulos(modelo string) (string, string) {
+	switch modelo {
+	case "NFCE":
+		return "DANFE NFC-e", "Documento Auxiliar da NFC-e"
+	case "CTE":
+		return "DACTE", "Documento Auxiliar do CT-e"
+	case "MDFE":
+		return "DAMDFE", "Documento Auxiliar do MDF-e"
+	case "NFSE":
+		return "DANFSe", "Documento Auxiliar da NFS-e"
+	}
+	return "DANFE", "Documento Auxiliar da Nota Fiscal Eletrônica"
+}
+
+func avisoStatus(d *store.Documento) string {
 	switch d.Status {
 	case "CANCELADA":
-		aviso = "DOCUMENTO CANCELADO"
+		return "DOCUMENTO CANCELADO"
 	case "DENEGADA":
-		aviso = "USO DENEGADO"
+		return "USO DENEGADO"
 	case "CONTINGENCIA":
-		aviso = "EMITIDO EM CONTINGÊNCIA (" + fiscal.DescricaoTpEmis[d.TpEmis] + ") — PENDENTE DE AUTORIZAÇÃO"
+		return "EMITIDO EM CONTINGÊNCIA - PENDENTE DE AUTORIZAÇÃO"
 	case "PENDENTE", "BLOQUEADA", "REJEITADA":
-		aviso = "SEM VALOR FISCAL — DOCUMENTO NÃO AUTORIZADO"
+		return "SEM VALOR FISCAL - DOCUMENTO NÃO AUTORIZADO"
 	}
-	var barras template.HTML
-	if len(d.Chave) == 44 && fiscal.SoDigitos(d.Chave) == d.Chave {
-		barras = Code128C(d.Chave, 40)
+	return ""
+}
+
+// PDF escreve a representação gráfica simplificada do documento em PDF (A4).
+func PDF(w io.Writer, d *store.Documento, itens []store.Item) error {
+	pdf := fpdf.New("P", "mm", "A4", "")
+	tr := pdf.UnicodeTranslatorFromDescriptor("cp1252")
+	pdf.SetMargins(8, 8, 8)
+	pdf.SetAutoPageBreak(true, 12)
+	pdf.SetTitle(tr(d.Modelo+" "+d.Numero), false)
+	pdf.SetCreator("Vorticis Monitor", false)
+	titulo, sub := titulos(d.Modelo)
+	aviso := avisoStatus(d)
+	const L = 194.0 // largura útil
+
+	campo := func(x, y, w, h float64, rotulo, valor string, tam float64) {
+		pdf.Rect(x, y, w, h, "D")
+		pdf.SetFont("Helvetica", "", 5.5)
+		pdf.SetXY(x+1, y+0.6)
+		pdf.CellFormat(w-2, 2.6, tr(strings.ToUpper(rotulo)), "", 0, "L", false, 0, "")
+		pdf.SetFont("Helvetica", "B", tam)
+		pdf.SetXY(x+1, y+3.2)
+		pdf.CellFormat(w-2, h-3.6, tr(valor), "", 0, "L", false, 0, "")
 	}
-	return tplDANFE.Execute(w, map[string]any{"D": d, "Itens": itens, "Titulo": titulo, "Subtitulo": sub, "Aviso": aviso, "Barras": barras})
+
+	cabecalho := func() {
+		x0, y0 := 8.0, pdf.GetY()
+		if aviso != "" {
+			pdf.SetTextColor(190, 20, 20)
+			pdf.SetFont("Helvetica", "B", 11)
+			pdf.CellFormat(L, 6, tr(aviso), "", 1, "C", false, 0, "")
+			pdf.SetTextColor(0, 0, 0)
+			y0 = pdf.GetY()
+		}
+		// emitente
+		pdf.Rect(x0, y0, 78, 30, "D")
+		pdf.SetFont("Helvetica", "", 5.5)
+		pdf.SetXY(x0+1, y0+0.8)
+		pdf.CellFormat(76, 2.6, "EMITENTE", "", 0, "L", false, 0, "")
+		pdf.SetFont("Helvetica", "B", 9.5)
+		pdf.SetXY(x0+1, y0+5)
+		pdf.MultiCell(76, 4.2, tr(d.EmitNome), "", "L", false)
+		pdf.SetFont("Helvetica", "", 8)
+		pdf.SetX(x0 + 1)
+		pdf.CellFormat(76, 4, tr("CNPJ/CPF: "+formatarDoc(d.EmitDoc)+"   UF: "+d.EmitUF), "", 1, "L", false, 0, "")
+		// título
+		pdf.Rect(x0+78, y0, 36, 30, "D")
+		pdf.SetXY(x0+78, y0+2)
+		pdf.SetFont("Helvetica", "B", 13)
+		pdf.CellFormat(36, 6, tr(titulo), "", 2, "C", false, 0, "")
+		pdf.SetFont("Helvetica", "", 6)
+		pdf.MultiCell(36, 2.8, tr(sub), "", "C", false)
+		pdf.SetX(x0 + 78)
+		pdf.SetFont("Helvetica", "", 8)
+		mov := "1 - SAÍDA"
+		if d.Direcao == "E" {
+			mov = "0 - ENTRADA"
+		}
+		pdf.CellFormat(36, 4.5, tr(mov), "", 2, "C", false, 0, "")
+		pdf.SetFont("Helvetica", "B", 9)
+		pdf.CellFormat(36, 4.5, tr("Nº "+d.Numero), "", 2, "C", false, 0, "")
+		pdf.SetFont("Helvetica", "", 8)
+		pdf.CellFormat(36, 4, tr("Série "+d.Serie), "", 2, "C", false, 0, "")
+		// chave + barras
+		xc := x0 + 114
+		pdf.Rect(xc, y0, 80, 30, "D")
+		if len(d.Chave) == 44 && fiscal.SoDigitos(d.Chave) == d.Chave {
+			mods := barras128C(d.Chave)
+			total := 0
+			for _, m := range mods {
+				total += m
+			}
+			escala := 74.0 / float64(total)
+			bx := xc + 3
+			pdf.SetFillColor(0, 0, 0)
+			for i, m := range mods {
+				if i%2 == 0 {
+					pdf.Rect(bx, y0+2, float64(m)*escala, 12, "F")
+				}
+				bx += float64(m) * escala
+			}
+		}
+		pdf.SetFont("Helvetica", "", 5.5)
+		pdf.SetXY(xc+1, y0+15.5)
+		pdf.CellFormat(78, 2.6, "CHAVE DE ACESSO", "", 2, "L", false, 0, "")
+		pdf.SetFont("Helvetica", "B", 8)
+		pdf.CellFormat(78, 4, formatarChave(d.Chave), "", 2, "C", false, 0, "")
+		pdf.SetFont("Helvetica", "", 6)
+		pdf.MultiCell(78, 2.8, tr("Consulta de autenticidade no portal nacional da NF-e (www.nfe.fazenda.gov.br/portal) ou no site da SEFAZ autorizadora"), "", "C", false)
+		y := y0 + 30
+		campo(x0, y, 114, 9, "Natureza da operação", d.Natureza, 8)
+		campo(x0+114, y, 80, 9, "Protocolo de autorização de uso", strings.TrimSpace(d.Protocolo+"  "+formatarData(d.DhAutorizacao)), 8)
+		y += 9
+		campo(x0, y, 104, 9, "Destinatário / Remetente", d.DestNome, 8)
+		campo(x0+104, y, 40, 9, "CNPJ/CPF", formatarDoc(d.DestDoc), 8)
+		campo(x0+144, y, 12, 9, "UF", d.DestUF, 8)
+		campo(x0+156, y, 38, 9, "Data de emissão", formatarData(d.DhEmissao), 8)
+		y += 9
+		type par struct {
+			r string
+			v float64
+		}
+		vals := []par{{"Valor ICMS", d.ValorICMS}, {"Valor ICMS-ST", d.ValorST}, {"Valor IPI", d.ValorIPI}, {"PIS", d.ValorPIS}, {"COFINS", d.ValorCOFINS}}
+		if d.ValorDIFAL > 0 {
+			vals = append(vals, par{"ICMS UF destino", d.ValorDIFAL})
+		}
+		if d.ValorISS > 0 {
+			vals = append(vals, par{"ISS", d.ValorISS})
+		}
+		vals = append(vals, par{"Valor total", d.ValorTotal})
+		cw := L / float64(len(vals))
+		for i, v := range vals {
+			campo(x0+float64(i)*cw, y, cw, 9, v.r, f2(v.v), 8.5)
+		}
+		pdf.SetY(y + 11)
+	}
+
+	colunas := []struct {
+		t string
+		w float64
+		a string
+	}{{"CÓD.", 18, "L"}, {"DESCRIÇÃO", 56, "L"}, {"NCM", 14, "C"}, {"CST", 9, "C"}, {"CFOP", 9, "C"}, {"UN", 8, "C"},
+		{"QTD", 14, "R"}, {"V. UNIT", 15, "R"}, {"V. TOTAL", 16, "R"}, {"BC ICMS", 14, "R"}, {"ICMS", 11, "R"}, {"% ICMS", 10, "R"}}
+	cabItens := func() {
+		pdf.SetFont("Helvetica", "B", 6)
+		pdf.SetFillColor(230, 236, 240)
+		for _, c := range colunas {
+			pdf.CellFormat(c.w, 5, tr(c.t), "1", 0, "C", true, 0, "")
+		}
+		pdf.Ln(-1)
+	}
+	pdf.SetHeaderFunc(func() {
+		if pdf.PageNo() > 1 {
+			pdf.SetFont("Helvetica", "B", 8)
+			pdf.CellFormat(L, 5, tr(fmt.Sprintf("%s nº %s - continuação - chave %s", titulo, d.Numero, d.Chave)), "", 1, "L", false, 0, "")
+			cabItens()
+		}
+	})
+	pdf.SetFooterFunc(func() {
+		pdf.SetY(-10)
+		pdf.SetFont("Helvetica", "", 6)
+		pdf.CellFormat(L, 4, tr(fmt.Sprintf("Gerado pelo Vorticis Monitor a partir do XML - representação simplificada - página %d", pdf.PageNo())), "", 0, "C", false, 0, "")
+	})
+	pdf.AddPage()
+	cabecalho()
+	if len(itens) > 0 {
+		pdf.SetFont("Helvetica", "B", 7)
+		pdf.CellFormat(L, 4, tr("DADOS DOS PRODUTOS / SERVIÇOS"), "", 1, "L", false, 0, "")
+		cabItens()
+		pdf.SetFont("Helvetica", "", 6.5)
+		for _, it := range itens {
+			vals := []string{it.CodProd, it.Descricao, it.NCM, it.CSTICMS, it.CFOP, it.Unidade,
+				strings.Replace(fmt.Sprintf("%.4f", it.Quantidade), ".", ",", 1), strings.Replace(fmt.Sprintf("%.4f", it.ValorUnit), ".", ",", 1),
+				f2(it.ValorTotal), f2(it.VBC), f2(it.VICMS), f2(it.PICMS)}
+			for i, c := range colunas {
+				txt := tr(vals[i])
+				for pdf.GetStringWidth(txt) > c.w-1.5 && len(txt) > 1 {
+					txt = txt[:len(txt)-1]
+				}
+				pdf.CellFormat(c.w, 4.5, txt, "1", 0, c.a, false, 0, "")
+			}
+			pdf.Ln(-1)
+		}
+	}
+	pdf.Ln(2)
+	pdf.SetFont("Helvetica", "B", 7)
+	pdf.CellFormat(L, 4, "DADOS ADICIONAIS", "", 1, "L", false, 0, "")
+	pdf.SetFont("Helvetica", "", 7)
+	info := "Situação: " + d.Status
+	if d.XMotivo != "" {
+		info += fmt.Sprintf(" (%d - %s)", d.CStat, d.XMotivo)
+	}
+	if d.TpEmis != "" && d.TpEmis != "1" {
+		info += ". Forma de emissão: " + fiscal.DescricaoTpEmis[d.TpEmis]
+	}
+	pdf.MultiCell(L, 3.6, tr(info+"."), "1", "L", false)
+	return pdf.Output(w)
 }

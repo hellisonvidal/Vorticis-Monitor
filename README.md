@@ -1,17 +1,16 @@
 # Vorticis Monitor
 
-Monitor fiscal em tempo real para **NF-e, NFC-e, CT-e, MDF-e, NFS-e (ABRASF e Padrão Nacional)** e pré-escrituração **SPED**. Programa para Windows com janela própria, instalado sem exigir administrador, que se integra a ERPs e sistemas de escrituração via API REST.
+Programa para Windows de **consulta e monitoramento de documentos fiscais** — **NF-e, NFC-e, CT-e, MDF-e e NFS-e (ABRASF e Padrão Nacional)** — com janela própria, instalado sem exigir administrador, e integração com o ERP por API local.
 
 Arquitetura completa (ERD, motor de regras, máquina de estados, endpoints): [`docs/ARQUITETURA.md`](docs/ARQUITETURA.md).
 
 ## Funcionalidades
-- **Entradas:** captura pela Distribuição DF-e (NSU, regra de 1 h), manifestação do destinatário assinada (XMLDSig), validação de chave/CNPJ/IE, conciliação XML × pedido de compra × ordem de recebimento, devoluções x documento original.
-- **Saídas:** pré-validação antes da SEFAZ (`POST /api/v1/validacao/pre-emissao` → 422 se houver erro), CFOP/NCM/CEST/CST/CSOSN, auditoria de contingência (SVC-AN, SVC-RS, FS-DA, off-line).
-- **Serviços/Transporte:** ISS (alíquota, local de incidência LC 116 art. 3º), retenções IRRF/PIS/COFINS/CSLL/INSS, CT-e e MDF-e.
-- **Impostos complexos:** DIFAL (base única/dupla, FCP, entrada uso/consumo/ativo), ICMS-ST (MVA ajustada, MVA defasada), IPI, PIS/COFINS por regime, IBS/CBS 2026.
-- **Painel:** grid em tempo real (SSE), central de rejeições em linguagem clara com correções sugeridas, alertas de prazos (cancelamento, manifestação, contingência, certificado, MDF-e), score fiscal.
-- **Relatórios:** livros por CFOP/CST, apuração ICMS/ST/DIFAL por UF, PIS/COFINS, retenções (Reinf), inconsistências, rejeições, manifestação, contingência, conciliação, EFD ICMS/IPI, EFD-Contribuições, ZIP de XML + DANFE.
-- **Certificado digital A1** solicitado no primeiro uso, armazenado cifrado (AES-256-GCM + DPAPI).
+- **Consulta de documentos** emitidos e recebidos com **filtro de período (De/Até)** em todas as telas, atalhos (hoje, 7/30 dias, mês, mês anterior, ano), busca por número/chave/CNPJ/nome, modelo, movimento e situação.
+- **Exportação selecionada:** marque as notas (ou todas do filtro) e exporte em **XML, PDF ou XML + PDF** (ZIP organizado por modelo e movimento). PDF do DANFE/DACTE/DAMDFE/DANFSe com código de barras.
+- **Recebidos:** busca automática na SEFAZ (Distribuição DF-e), manifestação do destinatário assinada e download do XML completo.
+- **Situação na SEFAZ** e **conferência fiscal** de cada documento (chave, CNPJ/IE, CFOP, NCM/CEST, ICMS, ST, DIFAL, IPI, PIS/COFINS, retenções, contingência).
+- **Cadastro da empresa só pelo CNPJ:** dados da Receita Federal (BrasilAPI, CNPJ.ws, ReceitaWS) e Inscrição Estadual pelo Sintegra (via CNPJ.ws) ou pela **SEFAZ da UF com o certificado digital** — inclusive cadastrando direto a partir do arquivo do certificado.
+- **Certificado digital A1** guardado criptografado (AES-256-GCM + DPAPI).
 
 ## Downloads (Releases / pasta `release/`)
 | Arquivo | Para quê |
@@ -43,4 +42,4 @@ Gera em `dist/`: `VorticisMonitor.exe`, `VorticisMonitor-Portatil-<versão>.zip`
 `go test ./...` · `python3 samples/gerar_amostras.py` gera XMLs fictícios (DIFAL correto, ST com erros, contingência SVC incorreta, devolução inválida, entrada para conciliação, NFS-e com retenções, CT-e).
 
 ## Aviso
-Validações e arquivos SPED são de conferência/pré-escrituração; tabelas de alíquotas, MVA e URLs de webservices são parâmetros de referência a revisar conforme a legislação vigente.
+A conferência fiscal é de apoio; tabelas de alíquotas, MVA e URLs de webservices são parâmetros de referência a revisar conforme a legislação vigente.

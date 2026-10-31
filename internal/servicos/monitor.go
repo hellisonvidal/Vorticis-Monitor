@@ -249,7 +249,6 @@ func (m *Monitor) importar(xml []byte, origem string, finalidades map[int]string
 		return nil, err
 	}
 	m.arquivarXML(doc)
-	m.alertasDoDocumento(doc, res)
 	tipoEv := "documento.novo"
 	if anterior != nil {
 		tipoEv = "documento.status"
@@ -485,47 +484,6 @@ func (m *Monitor) arquivarXML(d *store.Documento) {
 	}
 }
 
-func (m *Monitor) alertasDoDocumento(d *store.Documento, res regras.Resultado) {
-	var emp int64
-	if d.EmpresaID != nil {
-		emp = *d.EmpresaID
-	}
-	criar := func(tipo, sev, titulo, msg, sufixo string) {
-		a := store.AlertaReg{EmpresaID: emp, DocumentoID: d.ID, Tipo: tipo, Severidade: sev, Titulo: titulo, Mensagem: msg, ChaveUnica: tipo + ":" + d.Chave + sufixo}
-		if ok, _ := m.Store.CriarAlerta(a); ok {
-			m.Hub.Publicar("alerta.novo", a)
-		}
-	}
-	if res.Erros > 0 {
-		var msgs []string
-		for _, o := range res.Ocorrencias {
-			if o.Severidade == regras.Erro && len(msgs) < 3 {
-				msgs = append(msgs, o.Mensagem)
-			}
-		}
-		criar("INCONSISTENCIA", "ERRO", fmt.Sprintf("%s %s nº %s: %d inconsistência(s) fiscal(is)", d.Modelo, d.Direcao, d.Numero, res.Erros), strings.Join(msgs, "; "), "")
-	}
-	for _, o := range res.Ocorrencias {
-		if o.Campo == "ICMS/pMVAST" {
-			criar("MVA_DEFASADA", "ALERTA", "Possível MVA defasada – "+d.Modelo+" nº "+d.Numero, o.Mensagem+" (esperado "+o.Esperado+"%, informado "+o.Informado+"%)", "")
-			break
-		}
-	}
-	for _, o := range res.Ocorrencias {
-		if strings.HasPrefix(o.Campo, "prod/NCM") {
-			criar("NCM_DIVERGENTE", "ALERTA", "NCM inconsistente – "+d.Modelo+" nº "+d.Numero, o.Mensagem+": "+o.Informado, "")
-			break
-		}
-	}
-	if d.Status == StRejeitada {
-		r := fiscal.DescreveRejeicao(d.CStat)
-		criar("REJEICAO", "ERRO", fmt.Sprintf("Rejeição %d – %s nº %s", d.CStat, d.Modelo, d.Numero), r.Explicacao+" Sugestão: "+r.Sugestao, strconv.Itoa(d.CStat))
-	}
-	if d.Status == StDenegada {
-		criar("DENEGACAO", "ERRO", "Uso denegado – "+d.Modelo+" nº "+d.Numero, d.XMotivo, "")
-	}
-}
-
 // Revalidar reprocessa o XML armazenado (ex.: após atualizar parâmetros de MVA/UF).
 func (m *Monitor) Revalidar(chave string, finalidades map[int]string) (*ResultadoImportacao, error) {
 	d, err := m.Store.ObterDocumento(chave)
@@ -638,7 +596,6 @@ func (m *Monitor) ConsultarSituacao(ctx context.Context, chave string) (*sefaz.R
 	if TransicaoValida(d.Status, st) || d.Status == StResumo {
 		m.Store.AtualizarSituacao(chave, st, r.CStat, r.XMotivo, r.Protocolo, r.DhAut)
 		d.Status, d.CStat, d.XMotivo = st, r.CStat, r.XMotivo
-		m.alertasDoDocumento(d, regras.Resultado{})
 		m.Hub.Publicar("documento.status", map[string]any{"chave": chave, "status": st, "c_stat": r.CStat, "x_motivo": r.XMotivo})
 	}
 	return r, nil

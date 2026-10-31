@@ -1,6 +1,6 @@
 # Vorticis Monitor — Arquitetura e Especificação
 
-Monitor fiscal em tempo real para NF-e (55), NFC-e (65), CT-e (57/67), MDF-e (58), NFS-e (ABRASF e Padrão Nacional) e pré-escrituração SPED (EFD ICMS/IPI e EFD-Contribuições).
+Programa para Windows de **consulta e monitoramento de documentos fiscais**: NF-e (55), NFC-e (65), CT-e (57/67), MDF-e (58) e NFS-e (ABRASF e Padrão Nacional) — captura, situação na SEFAZ, conferência fiscal, manifestação do destinatário e exportação em XML/PDF.
 
 > **Escopo legal.** As regras implementadas seguem o MOC NF-e 7.0 e NTs vigentes, a LC 87/96, a EC 87/2015, a LC 190/2022, o Conv. ICMS 142/2018 (ST/CEST), a LC 116/2003 (ISS), as Leis 10.833/03 e 9.430/96 (retenções) e a LC 214/2025 (IBS/CBS, alíquotas-teste de 2026). Tabelas de alíquotas, MVA e URLs de webservices são **parâmetros editáveis** e precisam ser revisados pelo responsável fiscal.
 
@@ -15,9 +15,9 @@ Monitor fiscal em tempo real para NF-e (55), NFC-e (65), CT-e (57/67), MDF-e (58
                 │                            │                     ▼               /PG)  │
  SEFAZ/AN ◄────►│  Cliente SOAP mTLS ◄── Captura DF-e / Consulta / Manifestação      │   │
  (cert. A1)     │                                                                    │   │
-                │  Agendador: alertas de prazo, contingência, certificado, MDF-e ◄───┘   │
+                │  Agendador: busca DF-e, situação das notas emitidas, pasta de XML  ◄┘   │
  Navegador ◄───►│  Painel web (SPA embutida) ◄── SSE (tempo real)                         │
- Escrituração ◄─│  Feed /escrituracao, SPED TXT, webhooks HMAC, ZIP XML/DANFE             │
+ ERP ◄──────────│  API local, webhooks HMAC, exportação ZIP (XML + PDF)                   │
                 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -27,8 +27,9 @@ Monitor fiscal em tempo real para NF-e (55), NFC-e (65), CT-e (57/67), MDF-e (58
 | `internal/xmlfiscal` | Parse de nfeProc/NFe, cteProc, mdfeProc, NFS-e Nacional, ABRASF, procEvento, resNFe |
 | `internal/regras` | Motor de regras + cálculos (DIFAL, MVA ajustada, ICMS-ST, retenções) |
 | `internal/sefaz` | Certificado A1 (PFX), webservices por UF, SOAP 1.2 mTLS, Distribuição DF-e, Consulta Protocolo, Status Serviço, Manifestação com XMLDSig |
-| `internal/servicos` | Orquestração: ingestão, devolução, conciliação, captura, alertas, agendador, hub SSE/webhooks, máquina de estados |
-| `internal/relatorios` | SPED, livros, apurações, retenções, ZIP, DANFE/DACTE/DANFSe (HTML + Code128) |
+| `internal/servicos` | Orquestração: ingestão, devolução, captura DF-e, consulta de situação, manifestação, agendador, hub SSE/webhooks, máquina de estados |
+| `internal/relatorios` | DANFE/DACTE/DAMDFE/DANFSe em PDF (com Code 128) e exportação ZIP dos documentos selecionados |
+| `internal/cadastro` | Cadastro da empresa pelo CNPJ: Receita Federal (BrasilAPI/CNPJ.ws/ReceitaWS) e IE (Sintegra via CNPJ.ws e SEFAZ CadConsultaCadastro4 com certificado) |
 | `internal/store` | Persistência (esquema relacional) |
 | `internal/api` | REST, autenticação (PBKDF2 + token HMAC, API-Key), perfis |
 | `web/static` | Painel SPA sem dependências externas |
@@ -50,7 +51,6 @@ erDiagram
   DOCUMENTO ||--o{ OCORRENCIA : "achados do motor"
   DOCUMENTO ||--o| CONCILIACAO : "XML x pedido"
   CONCILIACAO }o--|| PEDIDO_COMPRA : referencia
-  DOCUMENTO ||--o{ ALERTA : gera
   PARAM_UF ||..o{ OCORRENCIA : "parametriza DIFAL/ST"
   PARAM_MVA ||..o{ OCORRENCIA : "parametriza ST"
   PARAM_NCM ||..o{ OCORRENCIA : "valida NCM"
@@ -62,7 +62,6 @@ erDiagram
   DOCUMENTO_ITEM { int id PK; int documento_id FK; int n_item; string ncm; string cest; string cfop; string cst_icms; decimal v_bc; decimal p_icms; decimal v_icms; decimal v_bc_st; decimal p_mva; decimal v_icms_st; string cst_ipi; string cst_pis; string cst_cofins; decimal v_difal; string ped_compra; string item_ped }
   DOCUMENTO_EVENTO { int id PK; string chave; string tp_evento; int n_seq; string protocolo; int c_stat; text xml }
   OCORRENCIA { int id PK; int documento_id FK; string regra; string grupo; string severidade "ERRO|ALERTA|INFO"; int n_item; string campo; string esperado; string informado; int cod_rejeicao; string acao_correcao; bool resolvida }
-  ALERTA { int id PK; string tipo; string severidade; string titulo; datetime vence_em; bool lido; string chave_unica UK }
   NSU_CONTROLE { int empresa_id PK; string servico PK; string ult_nsu; string max_nsu; datetime proxima_consulta; int ultimo_c_stat }
   PEDIDO_COMPRA { int id PK; int empresa_id FK; string numero; string fornecedor_cnpj; string status }
   PEDIDO_ITEM { int id PK; int pedido_id FK; string item; string cod_produto_fornecedor; string ncm; decimal quantidade; decimal valor_unitario; decimal quantidade_recebida; string finalidade "REVENDA|INDUSTRIALIZACAO|USO_CONSUMO|ATIVO" }
@@ -77,7 +76,6 @@ erDiagram
 Decisões:
 - **XML íntegro é a fonte da verdade** (`documento.xml` + cópia em `dados/xml/AAAAMM/chave.xml`, guarda de 5 anos). As colunas desnormalizadas servem ao grid, relatórios e SPED.
 - **Ocorrências** são regravadas a cada revalidação (parâmetros de MVA/UF mudam e o documento é reavaliado).
-- **Alertas** possuem `chave_unica` para deduplicação (o agendador roda a cada minuto).
 - **Certificado**: PFX e senha cifrados com AES-256-GCM; chave-mestra protegida pela DPAPI (escopo máquina) no Windows.
 - Esquema em SQL padrão: SQLite no desktop; o mesmo modelo migra para PostgreSQL no modo web multiempresa (trocar driver + `INTEGER PRIMARY KEY AUTOINCREMENT` → `BIGSERIAL`, `INSERT OR IGNORE` → `ON CONFLICT DO NOTHING`).
 
@@ -101,7 +99,7 @@ flowchart TD
   D5 --> D6[6 · Operação: contingência, devolução x original]
   D6 --> E[Consolidação: severidade, score 0–100, bloqueante]
   E -->|origem ERP + erro| BL[Status BLOQUEADA → HTTP 422 na pré-emissão]
-  E --> F[Persistência + alertas + SSE + webhooks]
+  E --> F[Persistência + SSE + webhooks]
 ```
 
 ### 2.2 Regras implementadas
@@ -179,56 +177,49 @@ Mapeamento `cStat → status` em `servicos.StatusPorCStat`; transições validad
 
 | Exceção | Detecção | Tratamento |
 |---|---|---|
-| SEFAZ fora do ar (108/109, timeout) | consulta de status / erro de rede | alerta + orientação de SVC conforme UF; auditoria NFE090 |
-| Contingência sem transmissão | agendador (12 h alerta, 24 h erro) | `CONTINGENCIA_PENDENTE`; ação `transmitir_contingencia` |
-| Duplicidade 204/539 | cStat | ação `consultar_protocolo` → recupera protocolo existente |
+| SEFAZ fora do ar (108/109, timeout) | consulta de status / erro de rede | nova tentativa no próximo ciclo; auditoria NFE090 no documento |
+| Contingência sem transmissão | situação do documento | status `CONTINGENCIA` visível nas consultas até a autorização |
+| Duplicidade 204/539 | cStat | consulta pela chave recupera o protocolo existente |
 | Consumo indevido 656 / nada novo 137 | DF-e | `nsu_controle.proxima_consulta = agora + 1 h`; sempre usa `ultNSU` |
-| Certificado ausente/vencendo/vencido | agendador / carga | alertas `CERTIFICADO_AUSENTE`, `CERTIFICADO_VENCENDO` (30/7 dias); bloqueio de chamadas |
+| Certificado ausente/vencido | cadastro / uso | aviso na tela; chamadas à SEFAZ bloqueadas até incluir certificado válido |
 | Certificado de outro CNPJ | upload | recusa (evita rejeição 213) |
-| Prazo de cancelamento | nota autorizada com erros | `PRAZO_CANCELAMENTO` (NF-e 24 h, NFC-e 30 min — configurável) |
-| Prazo de manifestação | NF-e de entrada sem evento conclusivo | `PRAZO_MANIFESTACAO` (≤15 dias; erro ≤5) e `XML_NAO_BAIXADO` |
-| MDF-e sem encerramento | > 5 dias sem 110112 | `MDFE_NAO_ENCERRADO` |
-| Divergência com pedido | conciliação | `CONCILIACAO_DIVERGENTE` (preço acima, saldo excedido, item não pedido, CNPJ) |
-| MVA defasada / NCM | regras NFE050/NFE020 | `MVA_DEFASADA`, `NCM_DIVERGENTE` |
-| Pânico em rotina | `recover` no ciclo | log e continuidade do serviço; o Windows reinicia o serviço em falha |
+| Provedor de CNPJ indisponível | consulta de cadastro | fallback BrasilAPI → CNPJ.ws → ReceitaWS; IE pela SEFAZ com certificado |
+| Pânico em rotina | `recover` no ciclo | log e continuidade do programa |
 
 ---
 
 ## 4. API REST (`/api/v1`)
 
-Autenticação: `Authorization: Bearer <token>` (login) ou `X-API-Key` (ERP/escrituração, perfil INTEGRACAO). Downloads/SSE aceitam `?token=`. Perfis: ADMIN, FISCAL, CONSULTA (somente GET), INTEGRACAO.
+Autenticação: `Authorization: Bearer <token>` (login) ou `X-API-Key` (ERP, perfil INTEGRACAO). Downloads/SSE aceitam `?token=`. Perfis: ADMIN, FISCAL, CONSULTA (somente GET), INTEGRACAO.
 
 | Método | Rota | Descrição |
 |---|---|---|
 | GET | `/saude` | Health-check |
 | GET | `/auth/estado` · POST `/auth/setup` · POST `/auth/login` | Primeiro acesso e login |
-| GET | `/eventos/stream` | **SSE** tempo real: `documento.novo`, `documento.status`, `alerta.novo`, `captura.ciclo` |
-| GET | `/dashboard/resumo?empresa_id&de&ate` | KPIs: status, modelos, tributos, top rejeições/regras, score |
+| GET | `/eventos/stream` | **SSE** tempo real: `documento.novo`, `documento.status`, `captura.ciclo` |
+| GET | `/dashboard/resumo?empresa_id&de&ate` | KPIs do período: status, modelos, valores, manifestação pendente |
 | GET/POST | `/empresas` · GET/PUT `/empresas/{id}` | Cadastro (CNPJ, UF, IE, regime, ambiente) |
 | POST/GET/DELETE | `/empresas/{id}/certificado` | **Inclusão do certificado A1** (multipart `arquivo` + `senha`) |
-| GET | `/documentos?status&modelo&direcao&de&ate&q&pagina` | Grid de documentos |
+| GET | `/documentos?de&ate&status&modelo&direcao&q&pagina` | Consulta de documentos por período (todas as telas usam `de`/`ate`) |
 | POST | `/documentos/importar` | XML/ZIP (multipart ou corpo) |
-| GET | `/documentos/{chave}` · `/xml` · `/danfe` · `/ocorrencias` · `/eventos` | Detalhe, XML, DANFE, auditoria, eventos |
+| GET | `/documentos/{chave}` · `/xml` · `/pdf` · `/ocorrencias` · `/eventos` | Detalhe, XML, PDF (DANFE), conferência fiscal, eventos |
+| POST | `/documentos/exportar` | ZIP dos documentos selecionados: `{chaves:[…], formato: xml\|pdf\|ambos}` |
+| GET | `/cadastro/cnpj/{cnpj}` | Dados da Receita + IEs (Sintegra/SEFAZ) para cadastrar a empresa só com o CNPJ |
+| POST | `/cadastro/certificado` | Lê o e-CNPJ (multipart `arquivo`, `senha`) e consulta Receita + SEFAZ da UF |
 | GET | `/documentos/{chave}/correcoes` | Correções sugeridas (patches campo/valor) |
 | POST | `/documentos/{chave}/consultar-sefaz` | NFeConsultaProtocolo4 |
 | POST | `/documentos/{chave}/revalidar` | Reprocessa regras |
 | POST | `/documentos/{chave}/manifestacao` | `{tipo: 210210|210200|210220|210240, justificativa}` |
 | POST | `/documentos/{chave}/conciliar` | XML × pedido × ordem de recebimento |
 | POST | `/validacao/pre-emissao` | **Pré-validação** (200 aprovado / 422 bloqueado) |
-| POST | `/simulacao/difal` · `/simulacao/icms-st` · `/simulacao/retencoes` | Calculadoras |
 | GET | `/regras` | Catálogo de regras |
-| GET | `/rejeicoes` · `/rejeicoes/{codigo}` · `/rejeicoes/central` | Catálogo e central de rejeições |
-| GET | `/alertas?abertos=1` · POST `/alertas/{id}/lido` | Alertas |
 | GET | `/captura/status` · POST `/captura/{empresa}/executar?forcar=1` | Distribuição DF-e |
 | GET | `/sefaz/status?empresa_id&uf` | Status do autorizador e da SVC |
 | GET/POST | `/pedidos-compra` · GET `/conciliacoes` | Compras |
 | GET/PUT | `/parametros/uf` · GET/POST/DELETE `/parametros/mva` · POST `/parametros/ncm` | Parâmetros fiscais |
-| GET | `/relatorios` · `/relatorios/{id}?empresa_id&periodo=AAAA-MM` | CSV, SPED TXT, ZIP |
-| GET | `/escrituracao/lancamentos?empresa_id&periodo` | Feed JSON para escrituração |
 | GET/POST/DELETE | `/integracoes/webhooks` | Webhooks (HMAC-SHA256) |
 | GET/POST | `/usuarios` · GET `/auditoria` · GET/PUT `/config` | Administração |
 
-Relatórios (`{id}`): `livro-entradas-saidas`, `apuracao-icms`, `pis-cofins`, `retencoes` (EFD-Reinf), `inconsistencias`, `rejeicoes`, `manifestacao`, `contingencia`, `conciliacao`, `efd-icms-ipi`, `efd-contribuicoes`, `xml-lote`.
 
 Exemplo — pré-validação no ERP antes de transmitir:
 
@@ -252,14 +243,11 @@ curl -X POST http://localhost:8765/api/v1/validacao/pre-emissao -H "X-API-Key: $
 - Opção do instalador "Integração com ERP pela rede" (`host: 0.0.0.0`) ou `--sem-janela` para rodar só a API. TLS nativo (`tls_cert`/`tls_key`).
 - Multiempresa: várias empresas/certificados no mesmo banco; perfis de usuário.
 
-### 5.3 Adaptação a sistema de escrituração fiscal
-1. **Feed JSON** `/escrituracao/lancamentos` (documentos + itens + `cod_sit_sped`).
-2. **Arquivos SPED** de pré-escrituração (EFD ICMS/IPI: 0000/0150/0190/0200, C100/C101/C170/C190, D100/D190, E100/E110/E300/E310, blocos 9; EFD-Contribuições: 0110/0140, A100, C100/C170, M200/M600). Codificação ISO-8859-1.
-3. **Webhooks** assinados com HMAC.
-4. **Diretório** `dados/xml/AAAAMM/` com os XMLs para leitura direta.
-5. **ZIP** por período (XML + DANFE) para o contador.
-
----
+### 5.3 Integração com o ERP
+1. **API local** (`X-API-Key`): envio de XML, consulta por período e exportação.
+2. **Pasta monitorada** `importar\`.
+3. **Webhooks** assinados com HMAC (`documento.novo`, `documento.status`).
+4. **Diretório** `dados\xml\AAAAMM\` com os XMLs para leitura direta.
 
 ## 6. Segurança
 - Senhas PBKDF2-SHA256 (210 mil iterações); tokens HMAC-SHA256 de 12 h; API-Key para integração.

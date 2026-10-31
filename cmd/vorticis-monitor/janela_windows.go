@@ -60,7 +60,7 @@ func erroFatal(err error) {
 func trazerInstanciaAberta() {
 	t, _ := windows.UTF16PtrFromString(tituloJanela)
 	if h, _, _ := procFindWindowW.Call(0, uintptr(unsafe.Pointer(t))); h != 0 {
-		procShowWindow.Call(h, 9) // SW_RESTORE
+		procShowWindow.Call(h, 3) // SW_MAXIMIZE
 		procSetForegroundWnd.Call(h)
 	}
 }
@@ -108,8 +108,12 @@ func executarComJanela(ctx context.Context, cancel context.CancelFunc) error {
 			"Ele já vem no Windows 10 e 11 atualizados. Instale-o gratuitamente em\n" +
 			"https://go.microsoft.com/fwlink/p/?LinkId=2124703 e abra o programa novamente")
 	}
+	// Janela padrão do Windows (minimizar, maximizar/restaurar e fechar), sempre iniciando
+	// maximizada; na inicialização automática fica minimizada e volta maximizada.
+	hwnd := uintptr(w.Window())
+	procShowWindow.Call(hwnd, 3) // SW_MAXIMIZE
 	if minimizado {
-		procShowWindow.Call(uintptr(w.Window()), 6) // SW_MINIMIZE
+		procShowWindow.Call(hwnd, 6) // SW_MINIMIZE
 	}
 	w.Navigate(ini.url)
 	w.Run()

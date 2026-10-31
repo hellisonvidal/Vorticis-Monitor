@@ -17,7 +17,7 @@ import (
 
 // Evento em tempo real (SSE para o painel e webhooks para ERP/escrituração).
 type Evento struct {
-	Tipo  string `json:"tipo"` // documento.novo | documento.status | alerta.novo | captura.ciclo
+	Tipo  string `json:"tipo"` // documento.novo | documento.status | captura.ciclo
 	Dados any    `json:"dados"`
 	Em    string `json:"em"`
 }

@@ -101,3 +101,30 @@ func Autorizador(uf, tpEmis string) string {
 	}
 	return "SVRS"
 }
+
+// URLsCadastro: CadConsultaCadastro4 (consulta de contribuinte com certificado) por UF.
+// UFs que não oferecem o serviço ficam sem URL; é possível incluí-las em webservices.json
+// (chave "CAD" do ambiente "1").
+var URLsCadastro = map[string]string{
+	"SP": "https://nfe.fazenda.sp.gov.br/ws/cadconsultacadastro4.asmx",
+	"MG": "https://nfe.fazenda.mg.gov.br/nfe2/services/CadConsultaCadastro4",
+	"PR": "https://nfe.sefa.pr.gov.br/nfe/CadConsultaCadastro4",
+	"RS": "https://cad.sefazrs.rs.gov.br/ws/cadconsultacadastro/cadconsultacadastro4.asmx",
+	"BA": "https://nfe.sefaz.ba.gov.br/webservices/CadConsultaCadastro4/CadConsultaCadastro4.asmx",
+	"GO": "https://nfe.sefaz.go.gov.br/nfe/services/CadConsultaCadastro4",
+	"MT": "https://nfe.sefaz.mt.gov.br/nfews/v2/services/CadConsultaCadastro4",
+	"MS": "https://nfe.sefaz.ms.gov.br/ws/CadConsultaCadastro4",
+	"PE": "https://nfe.sefaz.pe.gov.br/nfe-service/services/CadConsultaCadastro4",
+	"AM": "https://nfe.sefaz.am.gov.br/services2/services/cadconsultacadastro4",
+	"AC": "https://cad.svrs.rs.gov.br/ws/cadconsultacadastro/cadconsultacadastro4.asmx",
+	"PB": "https://cad.svrs.rs.gov.br/ws/cadconsultacadastro/cadconsultacadastro4.asmx",
+	"RN": "https://cad.svrs.rs.gov.br/ws/cadconsultacadastro/cadconsultacadastro4.asmx",
+	"SC": "https://cad.svrs.rs.gov.br/ws/cadconsultacadastro/cadconsultacadastro4.asmx",
+}
+
+func urlCadastro(uf string) string {
+	if u := URLs["1"]["CAD"][uf]; u != "" {
+		return u
+	}
+	return URLsCadastro[uf]
+}

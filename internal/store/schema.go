@@ -106,19 +106,6 @@ CREATE TABLE IF NOT EXISTS ocorrencia (
 );
 CREATE INDEX IF NOT EXISTS ix_oc_doc ON ocorrencia(documento_id);
 
-CREATE TABLE IF NOT EXISTS alerta (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  empresa_id INTEGER,
-  documento_id INTEGER,
-  tipo TEXT NOT NULL,
-  severidade TEXT NOT NULL,
-  titulo TEXT NOT NULL, mensagem TEXT,
-  vence_em TEXT,
-  lido INTEGER NOT NULL DEFAULT 0,
-  chave_unica TEXT UNIQUE,
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
 CREATE TABLE IF NOT EXISTS nsu_controle (
   empresa_id INTEGER NOT NULL,
   servico TEXT NOT NULL,                    -- NFE_DISTDFE | CTE_DISTDFE | NFSE_ADN
