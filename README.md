@@ -1,6 +1,6 @@
 # Vorticis Monitor
 
-Monitor fiscal em tempo real para **NF-e, NFC-e, CT-e, MDF-e, NFS-e (ABRASF e Padrão Nacional)** e pré-escrituração **SPED**. Um único executável (Go) que roda como **serviço do Windows**, como **servidor web** na rede/internet e se integra a ERPs e sistemas de escrituração via API REST.
+Monitor fiscal em tempo real para **NF-e, NFC-e, CT-e, MDF-e, NFS-e (ABRASF e Padrão Nacional)** e pré-escrituração **SPED**. Programa para Windows com janela própria, instalado sem exigir administrador, que se integra a ERPs e sistemas de escrituração via API REST.
 
 Arquitetura completa (ERD, motor de regras, máquina de estados, endpoints): [`docs/ARQUITETURA.md`](docs/ARQUITETURA.md).
 
@@ -13,22 +13,24 @@ Arquitetura completa (ERD, motor de regras, máquina de estados, endpoints): [`d
 - **Relatórios:** livros por CFOP/CST, apuração ICMS/ST/DIFAL por UF, PIS/COFINS, retenções (Reinf), inconsistências, rejeições, manifestação, contingência, conciliação, EFD ICMS/IPI, EFD-Contribuições, ZIP de XML + DANFE.
 - **Certificado digital A1** solicitado no primeiro uso, armazenado cifrado (AES-256-GCM + DPAPI).
 
-## Downloads (pasta `release/`)
+## Downloads (Releases / pasta `release/`)
 | Arquivo | Para quê |
 |---|---|
-| `VorticisMonitor-Setup-1.0.0.exe` | **Instalador**: instala como serviço do Windows (roda em segundo plano, inicia com o sistema), atalhos e desinstalador. Requer administrador. |
-| `VorticisMonitor.exe` | **Executável avulso**: duplo clique inicia o monitor e abre o painel no navegador. Dados em `C:\ProgramData\Vorticis\Monitor`. |
-| `VorticisMonitor-Portatil-1.0.0.zip` | **Portátil**: extraia em qualquer pasta ou pendrive e execute `VorticisMonitor-Portatil.exe`. Sem instalação nem administrador; dados na subpasta `dados`. |
+| `VorticisMonitor-Setup-1.0.0.exe` | **Instalador** (recomendado): instala o programa no computador para o usuário atual — **não exige administrador** —, cria atalhos, inicialização automática opcional e desinstalador. |
+| `VorticisMonitor-Portatil-1.0.0.zip` | **Portátil**: extraia em qualquer pasta ou pendrive e abra `VorticisMonitor-Portatil.exe`. Sem instalação; dados na subpasta `dados`. |
+| `VorticisMonitor.exe` | Executável avulso (o mesmo programa, sem instalador). |
 | `SHA256SUMS.txt` | Hashes para conferência da integridade. |
 
-Em todos os casos: acesse o painel (normalmente `http://localhost:8765`), crie o administrador, cadastre a empresa e **inclua o certificado .pfx**. Integre o ERP pela API (`X-API-Key` em Configurações › Integração) ou gravando XMLs na pasta `importar`.
+O Vorticis Monitor abre em **janela própria do Windows** (WebView2), sem usar o navegador. Requisito: Microsoft Edge WebView2 Runtime, já incluído no Windows 10/11 atualizados. No primeiro uso, crie o administrador do programa, cadastre a empresa e **inclua o certificado .pfx**. Fechar a janela encerra o programa; abrir o atalho de novo traz a janela já aberta.
 
-Linha de comando: `VorticisMonitor.exe run | service install|uninstall|start|stop | reset-senha LOGIN SENHA | version` · opções `--portatil` e `--sem-navegador`.
+Dados: `%LOCALAPPDATA%\Vorticis\Monitor` (instalado) ou `dados\` ao lado do executável (portátil). Integração com ERP pela API local `http://127.0.0.1:8765/api/v1` (`X-API-Key` em Configurações › Integração) ou gravando XMLs na pasta `importar`.
+
+Linha de comando: `VorticisMonitor.exe run | reset-senha LOGIN SENHA | version` · opções `--portatil`, `--minimizado`, `--sem-janela` (somente a API, sem interface). Opcional, como administrador: `service install|uninstall|start|stop` para rodar como serviço do Windows.
 
 **Modo portátil** é ativado quando o nome do executável contém "portatil", quando existe o arquivo `vorticis.portatil` ao lado dele ou com `--portatil`. Nesse modo a chave que cifra o certificado fica na própria pasta (sem DPAPI), permitindo levá-la para outro computador — proteja a pasta.
 
-## Acesso pela rede / internet
-Marque **"Acesso pela rede"** no instalador (escuta em `0.0.0.0` e libera a porta 8765 no firewall) e acesse `http://NOME-DO-SERVIDOR:8765`. Para HTTPS, informe `tls_cert` e `tls_key` em `C:\ProgramData\Vorticis\Monitor\config.json` (ou publique por um proxy reverso como o IIS).
+## Integração pela rede
+Para ERPs em outros computadores, marque **"Integração com ERP pela rede"** no instalador (a API passa a escutar em `0.0.0.0:8765`; o firewall pode exigir liberação da porta). HTTPS: informe `tls_cert` e `tls_key` em `config.json`.
 
 ## Compilar
 Requer Go 1.24+ e NSIS 3 (`apt install nsis`):

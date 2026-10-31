@@ -50,14 +50,16 @@ func padrao() *Config {
 	}
 }
 
-// DiretorioDados retorna %ProgramData%\Vorticis\Monitor no Windows ou ./dados.
+// DiretorioDados retorna %LOCALAPPDATA%\Vorticis\Monitor no Windows (gravável pelo
+// próprio usuário, sem privilégio de administrador) ou ./dados nas demais plataformas.
+// VORTICIS_DATA tem precedência (modo portátil e serviço).
 func DiretorioDados() string {
 	if d := os.Getenv("VORTICIS_DATA"); d != "" {
 		return d
 	}
 	if runtime.GOOS == "windows" {
-		if pd := os.Getenv("ProgramData"); pd != "" {
-			return filepath.Join(pd, "Vorticis", "Monitor")
+		if la := os.Getenv("LOCALAPPDATA"); la != "" {
+			return filepath.Join(la, "Vorticis", "Monitor")
 		}
 	}
 	return "dados"

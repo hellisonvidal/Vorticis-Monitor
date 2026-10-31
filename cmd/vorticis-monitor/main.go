@@ -12,7 +12,9 @@
 // Modo portátil: ativado quando o executável contém "portatil" no nome, quando
 // existe o arquivo "vorticis.portatil" ao lado dele ou com a opção --portatil.
 // Os dados ficam em <pasta do executável>\dados e nenhum serviço é instalado.
-// Opção --sem-navegador evita abrir o painel automaticamente.
+// No Windows o programa abre em janela própria (WebView2), sem navegador.
+// Opções: --minimizado (inicia minimizado, usado na inicialização automática) e
+// --sem-janela (apenas o servidor interno, para acesso pela rede).
 package main
 
 import (
@@ -43,7 +45,8 @@ const nomeServico = "VorticisMonitor"
 
 var (
 	portatil     bool
-	semNavegador bool
+	minimizado bool
+	semJanela  bool
 )
 
 // args remove as opções globais (--portatil, --sem-navegador) da linha de comando.
@@ -53,8 +56,10 @@ func args() []string {
 		switch a {
 		case "--portatil":
 			portatil = true
-		case "--sem-navegador":
-			semNavegador = true
+		case "--minimizado":
+			minimizado = true
+		case "--sem-janela", "--sem-navegador":
+			semJanela = true
 		default:
 			out = append(out, a)
 		}
@@ -99,8 +104,8 @@ func main() {
 	case "run":
 		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer cancel()
-		if err := executar(ctx); err != nil {
-			log.Fatal(err)
+		if err := executarComJanela(ctx, cancel); err != nil {
+			erroFatal(err)
 		}
 	case "service":
 		if portatil {
@@ -157,7 +162,9 @@ func (m multiWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-func executar(ctx context.Context) error {
+// executar sobe o monitor (rotinas + servidor interno do painel) e bloqueia até ctx
+// ser cancelado. aoIniciar recebe o endereço do painel e o diretório de dados.
+func executar(ctx context.Context, aoIniciar func(url, dataDir string)) error {
 	cfg, st, cofre, err := abrir()
 	if err != nil {
 		return err
@@ -190,11 +197,8 @@ func executar(ctx context.Context) error {
 		modo = "portátil"
 	}
 	log.Printf("Vorticis Monitor %s (%s) — painel em %s (escuta %s, dados: %s)", api.Versao, modo, url, ln.Addr(), cfg.DataDir)
-	if !executandoComoServico() {
-		fmt.Printf("\n  Vorticis Monitor %s — %s\n  Painel: %s\n  Dados:  %s\n  Feche esta janela (ou Ctrl+C) para encerrar.\n\n", api.Versao, modo, url, cfg.DataDir)
-		if !semNavegador {
-			go func() { time.Sleep(700 * time.Millisecond); abrirNavegador(url) }()
-		}
+	if aoIniciar != nil {
+		aoIniciar(url, cfg.DataDir)
 	}
 	if cfg.TLSCert != "" {
 		err = srv.ServeTLS(ln, cfg.TLSCert, cfg.TLSKey)

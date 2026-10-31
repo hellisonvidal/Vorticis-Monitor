@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"time"
 
 	"golang.org/x/sys/windows/svc"
@@ -23,8 +24,9 @@ type handler struct{}
 func (handler) Execute(_ []string, req <-chan svc.ChangeRequest, st chan<- svc.Status) (bool, uint32) {
 	st <- svc.Status{State: svc.StartPending}
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	fim := make(chan error, 1)
-	go func() { fim <- executar(ctx) }()
+	go func() { fim <- executar(ctx, nil) }()
 	st <- svc.Status{State: svc.Running, Accepts: svc.AcceptStop | svc.AcceptShutdown}
 	for {
 		select {
@@ -52,6 +54,11 @@ func (handler) Execute(_ []string, req <-chan svc.ChangeRequest, st chan<- svc.S
 }
 
 func executarServico() {
+	// O serviço (opcional, instalado via linha de comando como administrador) roda
+	// como SYSTEM; usa a pasta comum de dados da máquina.
+	if os.Getenv("VORTICIS_DATA") == "" {
+		os.Setenv("VORTICIS_DATA", filepath.Join(os.Getenv("ProgramData"), "Vorticis", "Monitor"))
+	}
 	if err := svc.Run(nomeServico, handler{}); err != nil {
 		log.Fatal(err)
 	}

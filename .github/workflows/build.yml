@@ -37,6 +37,11 @@ jobs:
           if [[ "$GITHUB_REF" == refs/tags/v* ]] || { [[ "$GITHUB_REF" == refs/heads/main ]] && ! git rev-parse -q --verify "refs/tags/v$V" >/dev/null; }; then
             echo "PUBLICAR=1" >> "$GITHUB_ENV"
           fi
+          # Commit com [republicar] no main: move a tag da versão atual e substitui os arquivos da Release.
+          if [[ "$GITHUB_REF" == refs/heads/main ]] && git log -1 --pretty=%B | grep -qF '[republicar]'; then
+            git tag -f "v$V" && git push -f origin "refs/tags/v$V"
+            echo "PUBLICAR=1" >> "$GITHUB_ENV"
+          fi
 
       - name: Testes, compilação e pacotes
         run: ./build.sh
@@ -60,12 +65,13 @@ jobs:
           name: Vorticis Monitor ${{ env.VERSAO }}
           body: |
             **Downloads**
-            - `VorticisMonitor-Setup-${{ env.VERSAO }}.exe` — instalador (serviço do Windows)
-            - `VorticisMonitor.exe` — executável avulso (duplo clique abre o painel)
-            - `VorticisMonitor-Portatil-${{ env.VERSAO }}.zip` — versão portátil (sem instalação)
+            - `VorticisMonitor-Setup-${{ env.VERSAO }}.exe` — **instalador** (recomendado): instala no computador para o usuário atual, sem exigir administrador
+            - `VorticisMonitor-Portatil-${{ env.VERSAO }}.zip` — **portátil**: extraia e abra `VorticisMonitor-Portatil.exe`, sem instalação
+            - `VorticisMonitor.exe` — executável avulso
             - `SHA256SUMS.txt` — hashes de integridade
 
-            Após iniciar, acesse http://localhost:8765, crie o administrador, cadastre a empresa e inclua o certificado digital A1.
+            O programa abre em janela própria do Windows (não usa o navegador). Requisito: Microsoft Edge WebView2 Runtime, já incluído no Windows 10/11 atualizados.
+            No primeiro uso, crie o administrador do programa, cadastre a empresa e inclua o certificado digital A1.
           files: |
             dist/VorticisMonitor.exe
             dist/VorticisMonitor-Portatil-*.zip

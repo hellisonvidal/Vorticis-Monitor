@@ -4,13 +4,13 @@ VORTICIS MONITOR - VERSAO PORTATIL
 Nao precisa de instalacao nem de permissao de administrador.
 
 1. Extraia esta pasta para onde quiser (disco local, rede ou pendrive).
-2. De duplo clique em VorticisMonitor-Portatil.exe.
-   - Uma janela de console mostra o endereco do painel e o navegador abre
-     automaticamente (normalmente http://localhost:8765; se a porta estiver
-     ocupada, as portas seguintes sao usadas).
+2. De duplo clique em VorticisMonitor-Portatil.exe. O programa abre em
+   janela propria (nao usa o navegador).
+   Requisito: Microsoft Edge WebView2 Runtime, ja incluido no Windows 10/11
+   atualizados (https://go.microsoft.com/fwlink/p/?LinkId=2124703).
 3. No primeiro acesso crie o usuario administrador, cadastre a empresa e
    inclua o certificado digital A1 (.pfx).
-4. Para encerrar, feche a janela do console (ou Ctrl+C).
+4. Para encerrar, feche a janela do programa.
 
 Dados
 -----
@@ -27,4 +27,4 @@ Diferencas em relacao a versao instalada
 - Nao roda como servico: as rotinas (captura DF-e, alertas, consultas SEFAZ)
   funcionam apenas enquanto a janela estiver aberta.
 - Pasta monitorada de XML: dados\importar
-- Opcoes de linha de comando: --sem-navegador, reset-senha LOGIN SENHA, version
+- Opcoes de linha de comando: --minimizado, reset-senha LOGIN SENHA, version

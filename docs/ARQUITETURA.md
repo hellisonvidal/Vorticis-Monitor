@@ -240,15 +240,17 @@ curl -X POST http://localhost:8765/api/v1/validacao/pre-emissao -H "X-API-Key: $
 
 ## 5. Formatos de implantação
 
-### 5.1 Software instalado no Windows
-- `VorticisMonitor-Setup-x.y.z.exe` (NSIS): instala em `C:\Program Files\Vorticis\Monitor`, dados em `C:\ProgramData\Vorticis\Monitor` (ACL só SYSTEM/Administradores), registra o **serviço "Vorticis Monitor Fiscal"** (início automático atrasado, reinício em falha), atalhos e desinstalador.
-- O painel abre em `http://localhost:8765`. No 1º acesso cria-se o administrador; um banner pede a **inclusão do certificado digital**.
-- Pasta monitorada `C:\ProgramData\Vorticis\Monitor\importar`: o ERP grava XMLs e o monitor importa (move para `processados`/`erros`).
+### 5.1 Programa instalado no Windows (janela própria)
+- `VorticisMonitor-Setup-x.y.z.exe` (NSIS) instala **por usuário, sem privilégio de administrador**: programa em `%LOCALAPPDATA%\Programs\Vorticis\Monitor`, dados em `%LOCALAPPDATA%\Vorticis\Monitor`, atalhos, inicialização automática opcional (atalho em *Inicializar* com `--minimizado`) e desinstalador (registro em HKCU).
+- A interface abre em **janela nativa** (Microsoft Edge WebView2) — não usa o navegador. O servidor HTTP interno escuta apenas em `127.0.0.1` e serve a janela e a API do ERP. Fechar a janela encerra o programa; uma segunda execução apenas traz a janela existente (mutex por pasta de dados).
+- No primeiro uso cria-se o administrador do programa; um aviso pede a **inclusão do certificado digital**.
+- Pasta monitorada `%LOCALAPPDATA%\Vorticis\Monitor\importar`: o ERP grava XMLs e o monitor importa (move para `processados`/`erros`).
+- **Portátil**: o mesmo executável com "portatil" no nome (ou arquivo `vorticis.portatil`); dados em `dados\` ao lado do executável.
+- Opcional (administrador): `VorticisMonitor.exe service install` para rodar como serviço do Windows, com dados em `%ProgramData%`.
 
-### 5.2 Execução via página de internet (modo servidor)
-- Mesmo executável Windows. Opção do instalador "Acesso pela rede" (`host: 0.0.0.0` + firewall).
-- TLS nativo (`tls_cert`/`tls_key`) ou proxy reverso (IIS/ARR, desativando o buffer de resposta em `/api/v1/eventos/stream` para o tempo real/SSE).
-- Multiempresa: várias empresas/certificados no mesmo banco; perfis de usuário. Para SaaS multi-tenant, recomenda-se PostgreSQL e um `tenant_id` nas tabelas.
+### 5.2 Integração pela rede
+- Opção do instalador "Integração com ERP pela rede" (`host: 0.0.0.0`) ou `--sem-janela` para rodar só a API. TLS nativo (`tls_cert`/`tls_key`).
+- Multiempresa: várias empresas/certificados no mesmo banco; perfis de usuário.
 
 ### 5.3 Adaptação a sistema de escrituração fiscal
 1. **Feed JSON** `/escrituracao/lancamentos` (documentos + itens + `cod_sit_sped`).

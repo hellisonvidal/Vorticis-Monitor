@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Compila o Vorticis Monitor e gera os pacotes Windows (requer Go 1.24+, NSIS 3 e zip).
-#   dist/VorticisMonitor.exe                     executável Windows (duplo clique abre o painel)
+#   dist/VorticisMonitor.exe                     executável Windows (janela própria, sem navegador)
 #   dist/VorticisMonitor-Portatil-<v>.zip        versão portátil (sem instalação)
 #   dist/VorticisMonitor-Setup-<v>.exe           instalador (serviço do Windows)
 set -euo pipefail
@@ -13,12 +13,10 @@ echo "== testes"; go test ./...
 
 echo "== recursos Windows (ícone, versão, manifesto)"
 [ -x "$GOBIN/go-winres" ] || go install github.com/tc-hib/go-winres@v0.3.3
-(cd cmd/vorticis-monitor && "$GOBIN/go-winres" simply --arch amd64 --icon ../../installer/vorticis.ico --manifest cli \
-  --product-name "Vorticis Monitor" --file-description "Vorticis Monitor Fiscal" --copyright "(c) 2026 Vorticis" \
-  --product-version "$VERSAO" --file-version "$VERSAO" --original-filename "VorticisMonitor.exe")
+(cd cmd/vorticis-monitor && "$GOBIN/go-winres" make --arch amd64 --product-version "$VERSAO.0" --file-version "$VERSAO.0")
 
 echo "== windows/amd64"
-GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o dist/VorticisMonitor.exe ./cmd/vorticis-monitor
+GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -H windowsgui" -o dist/VorticisMonitor.exe ./cmd/vorticis-monitor
 
 echo "== portátil"
 P="dist/VorticisMonitor-Portatil-$VERSAO"
@@ -32,9 +30,7 @@ cp docs/ARQUITETURA.md "$P/"
 rm -rf "$P"
 
 echo "== instalador"
-cp dist/VorticisMonitor.exe dist/vorticis-monitor.exe
 (cd installer && makensis -V2 -DVERSAO="$VERSAO" vorticis-monitor.nsi)
-rm dist/vorticis-monitor.exe
 
 (cd dist && sha256sum * > SHA256SUMS.txt)
 ls -lh dist
