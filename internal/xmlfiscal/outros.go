@@ -22,20 +22,22 @@ type CTeProc struct {
 type InfCte struct {
 	ID  string `xml:"Id,attr"`
 	Ide struct {
-		CUF     string `xml:"cUF"`
-		CFOP    string `xml:"CFOP"`
-		NatOp   string `xml:"natOp"`
-		Mod     string `xml:"mod"`
-		Serie   string `xml:"serie"`
-		NCT     string `xml:"nCT"`
-		DhEmi   string `xml:"dhEmi"`
-		TpEmis  string `xml:"tpEmis"`
-		TpCTe   string `xml:"tpCTe"`
-		Modal   string `xml:"modal"`
-		UFIni   string `xml:"UFIni"`
-		UFFim   string `xml:"UFFim"`
-		Toma3   *struct{ Toma string `xml:"toma"` } `xml:"toma3"`
-		Toma4   *struct {
+		CUF    string `xml:"cUF"`
+		CFOP   string `xml:"CFOP"`
+		NatOp  string `xml:"natOp"`
+		Mod    string `xml:"mod"`
+		Serie  string `xml:"serie"`
+		NCT    string `xml:"nCT"`
+		DhEmi  string `xml:"dhEmi"`
+		TpEmis string `xml:"tpEmis"`
+		TpCTe  string `xml:"tpCTe"`
+		Modal  string `xml:"modal"`
+		UFIni  string `xml:"UFIni"`
+		UFFim  string `xml:"UFFim"`
+		Toma3  *struct {
+			Toma string `xml:"toma"`
+		} `xml:"toma3"`
+		Toma4 *struct {
 			Toma string `xml:"toma"`
 			CNPJ string `xml:"CNPJ"`
 		} `xml:"toma4"`
@@ -46,10 +48,10 @@ type InfCte struct {
 		XNome     string   `xml:"xNome"`
 		EnderEmit Endereco `xml:"enderEmit"`
 	} `xml:"emit"`
-	Rem  struct{ CNPJ, CPF, XNome string } `xml:"rem"`
-	Dest struct{ CNPJ, CPF, XNome string } `xml:"dest"`
-	Exped struct{ CNPJ string } `xml:"exped"`
-	Receb struct{ CNPJ string } `xml:"receb"`
+	Rem    struct{ CNPJ, CPF, XNome string } `xml:"rem"`
+	Dest   struct{ CNPJ, CPF, XNome string } `xml:"dest"`
+	Exped  struct{ CNPJ string }             `xml:"exped"`
+	Receb  struct{ CNPJ string }             `xml:"receb"`
 	VPrest struct {
 		VTPrest Valor `xml:"vTPrest"`
 		VRec    Valor `xml:"vRec"`
@@ -83,8 +85,8 @@ type MDFeProc struct {
 				UFFim  string `xml:"UFFim"`
 			} `xml:"ide"`
 			Emit struct {
-				CNPJ  string `xml:"CNPJ"`
-				XNome string `xml:"xNome"`
+				CNPJ      string   `xml:"CNPJ"`
+				XNome     string   `xml:"xNome"`
 				EnderEmit Endereco `xml:"enderEmit"`
 			} `xml:"emit"`
 			Tot struct {
@@ -106,56 +108,56 @@ type MDFeProc struct {
 
 // NFSe é o modelo normalizado de NFS-e (Padrão Nacional ou ABRASF).
 type NFSe struct {
-	Padrao            string  `json:"padrao"` // NACIONAL | ABRASF
-	Chave             string  `json:"chave"`
-	Numero            string  `json:"numero"`
-	DataEmissao       string  `json:"data_emissao"`
-	PrestadorDoc      string  `json:"prestador_doc"`
-	PrestadorNome     string  `json:"prestador_nome"`
-	PrestadorMun      string  `json:"prestador_mun"`
-	PrestadorSimples  bool    `json:"prestador_simples"`
-	TomadorDoc        string  `json:"tomador_doc"`
-	TomadorNome       string  `json:"tomador_nome"`
-	CodigoServico     string  `json:"codigo_servico"` // subitem LC 116 normalizado (ex.: 7.02)
-	CTribNac          string  `json:"ctrib_nac"`
-	CodMunIncidencia  string  `json:"cod_mun_incidencia"`
-	CodMunPrestacao   string  `json:"cod_mun_prestacao"`
-	ValorServicos     float64 `json:"valor_servicos"`
-	ValorDeducoes     float64 `json:"valor_deducoes"`
-	BaseCalculo       float64 `json:"base_calculo"`
-	AliquotaISS       float64 `json:"aliquota_iss"`
-	ValorISS          float64 `json:"valor_iss"`
-	ISSRetido         bool    `json:"iss_retido"`
-	ValorIR           float64 `json:"valor_ir"`
-	ValorPIS          float64 `json:"valor_pis"`
-	ValorCOFINS       float64 `json:"valor_cofins"`
-	ValorCSLL         float64 `json:"valor_csll"`
-	ValorINSS         float64 `json:"valor_inss"`
-	ValorLiquido      float64 `json:"valor_liquido"`
-	Cancelada         bool    `json:"cancelada"`
+	Padrao           string  `json:"padrao"` // NACIONAL | ABRASF
+	Chave            string  `json:"chave"`
+	Numero           string  `json:"numero"`
+	DataEmissao      string  `json:"data_emissao"`
+	PrestadorDoc     string  `json:"prestador_doc"`
+	PrestadorNome    string  `json:"prestador_nome"`
+	PrestadorMun     string  `json:"prestador_mun"`
+	PrestadorSimples bool    `json:"prestador_simples"`
+	TomadorDoc       string  `json:"tomador_doc"`
+	TomadorNome      string  `json:"tomador_nome"`
+	CodigoServico    string  `json:"codigo_servico"` // subitem LC 116 normalizado (ex.: 7.02)
+	CTribNac         string  `json:"ctrib_nac"`
+	CodMunIncidencia string  `json:"cod_mun_incidencia"`
+	CodMunPrestacao  string  `json:"cod_mun_prestacao"`
+	ValorServicos    float64 `json:"valor_servicos"`
+	ValorDeducoes    float64 `json:"valor_deducoes"`
+	BaseCalculo      float64 `json:"base_calculo"`
+	AliquotaISS      float64 `json:"aliquota_iss"`
+	ValorISS         float64 `json:"valor_iss"`
+	ISSRetido        bool    `json:"iss_retido"`
+	ValorIR          float64 `json:"valor_ir"`
+	ValorPIS         float64 `json:"valor_pis"`
+	ValorCOFINS      float64 `json:"valor_cofins"`
+	ValorCSLL        float64 `json:"valor_csll"`
+	ValorINSS        float64 `json:"valor_inss"`
+	ValorLiquido     float64 `json:"valor_liquido"`
+	Cancelada        bool    `json:"cancelada"`
 }
 
 // nfseNacional mapeia o XML da NFS-e Padrão Nacional (leiaute SEFIN Nacional 1.00).
 type nfseNacional struct {
 	InfNFSe struct {
-		ID       string `xml:"Id,attr"`
-		XLocEmi  string `xml:"xLocEmi"`
-		NNFSe    string `xml:"nNFSe"`
+		ID        string `xml:"Id,attr"`
+		XLocEmi   string `xml:"xLocEmi"`
+		NNFSe     string `xml:"nNFSe"`
 		CLocIncid string `xml:"cLocIncid"`
-		DhProc   string `xml:"dhProc"`
-		Emit     struct {
-			CNPJ  string `xml:"CNPJ"`
-			CPF   string `xml:"CPF"`
-			XNome string `xml:"xNome"`
+		DhProc    string `xml:"dhProc"`
+		Emit      struct {
+			CNPJ     string `xml:"CNPJ"`
+			CPF      string `xml:"CPF"`
+			XNome    string `xml:"xNome"`
 			EnderNac struct {
 				CMun string `xml:"cMun"`
 			} `xml:"enderNac"`
 		} `xml:"emit"`
 		Valores struct {
-			VBC       Valor `xml:"vBC"`
+			VBC        Valor `xml:"vBC"`
 			PAliqAplic Valor `xml:"pAliqAplic"`
-			VISSQN    Valor `xml:"vISSQN"`
-			VLiq      Valor `xml:"vLiq"`
+			VISSQN     Valor `xml:"vISSQN"`
+			VLiq       Valor `xml:"vLiq"`
 		} `xml:"valores"`
 		DPS struct {
 			InfDPS struct {
@@ -184,14 +186,14 @@ type nfseNacional struct {
 					} `xml:"vServPrest"`
 					Trib struct {
 						TribMun struct {
-							TribISSQN string `xml:"tribISSQN"`
+							TribISSQN  string `xml:"tribISSQN"`
 							TpRetISSQN string `xml:"tpRetISSQN"`
-							PAliq     Valor  `xml:"pAliq"`
+							PAliq      Valor  `xml:"pAliq"`
 						} `xml:"tribMun"`
 						TribFed struct {
 							PisCofins struct {
-								VPis    Valor `xml:"vPis"`
-								VCofins Valor `xml:"vCofins"`
+								VPis    Valor  `xml:"vPis"`
+								VCofins Valor  `xml:"vCofins"`
 								TpRet   string `xml:"tpRetPisCofins"`
 							} `xml:"piscofins"`
 							VRetCP   Valor `xml:"vRetCP"`
@@ -212,12 +214,12 @@ func (n nfseNacional) Normaliza() NFSe {
 		Padrao: "NACIONAL", Chave: trimPrefixAny(i.ID, "NFS"), Numero: i.NNFSe, DataEmissao: d.DhEmi,
 		PrestadorDoc: first(i.Emit.CNPJ, i.Emit.CPF), PrestadorNome: i.Emit.XNome, PrestadorMun: i.Emit.EnderNac.CMun,
 		PrestadorSimples: d.Prest.RegTrib.OpSimpNac == "2" || d.Prest.RegTrib.OpSimpNac == "3",
-		TomadorDoc: first(d.Toma.CNPJ, d.Toma.CPF), TomadorNome: d.Toma.XNome,
+		TomadorDoc:       first(d.Toma.CNPJ, d.Toma.CPF), TomadorNome: d.Toma.XNome,
 		CTribNac: d.Serv.CServ.CTribNac, CodMunIncidencia: i.CLocIncid, CodMunPrestacao: d.Serv.LocPrest.CLocPrestacao,
 		ValorServicos: d.Valores.VServPrest.VServ.F(), BaseCalculo: i.Valores.VBC.F(),
 		AliquotaISS: first2(i.Valores.PAliqAplic.F(), d.Valores.Trib.TribMun.PAliq.F()), ValorISS: i.Valores.VISSQN.F(),
 		ISSRetido: d.Valores.Trib.TribMun.TpRetISSQN == "2" || d.Valores.Trib.TribMun.TpRetISSQN == "3",
-		ValorIR: d.Valores.Trib.TribFed.VRetIRRF.F(), ValorCSLL: d.Valores.Trib.TribFed.VRetCSLL.F(),
+		ValorIR:   d.Valores.Trib.TribFed.VRetIRRF.F(), ValorCSLL: d.Valores.Trib.TribFed.VRetCSLL.F(),
 		ValorINSS: d.Valores.Trib.TribFed.VRetCP.F(), ValorLiquido: i.Valores.VLiq.F(),
 	}
 	if t := d.Valores.Trib.TribFed.PisCofins.TpRet; t == "1" || t == "" {
@@ -230,9 +232,9 @@ func (n nfseNacional) Normaliza() NFSe {
 
 // nfseABRASF mapeia o InfNfse do padrão ABRASF 2.0x.
 type nfseABRASF struct {
-	Numero       string `xml:"Numero"`
-	DataEmissao  string `xml:"DataEmissao"`
-	ValoresNfse  struct {
+	Numero      string `xml:"Numero"`
+	DataEmissao string `xml:"DataEmissao"`
+	ValoresNfse struct {
 		BaseCalculo  Valor `xml:"BaseCalculo"`
 		Aliquota     Valor `xml:"Aliquota"`
 		ValorIss     Valor `xml:"ValorIss"`
@@ -282,11 +284,11 @@ func (n nfseABRASF) Normaliza() NFSe {
 	v := s.Valores
 	o := NFSe{
 		Padrao: "ABRASF", Numero: n.Numero, DataEmissao: n.DataEmissao,
-		PrestadorDoc: first(n.Decl.Inf.Prestador.CpfCnpj.Cnpj, n.Decl.Inf.Prestador.CpfCnpj.Cpf),
+		PrestadorDoc:  first(n.Decl.Inf.Prestador.CpfCnpj.Cnpj, n.Decl.Inf.Prestador.CpfCnpj.Cpf),
 		PrestadorNome: n.PrestadorServico.RazaoSocial, PrestadorMun: n.PrestadorServico.Endereco.CodigoMunicipio,
 		PrestadorSimples: n.Decl.Inf.OptanteSimplesNacional == "1",
-		TomadorDoc: first(n.Decl.Inf.Tomador.IdentificacaoTomador.CpfCnpj.Cnpj, n.Decl.Inf.Tomador.IdentificacaoTomador.CpfCnpj.Cpf),
-		TomadorNome: n.Decl.Inf.Tomador.RazaoSocial, CodigoServico: s.ItemListaServico,
+		TomadorDoc:       first(n.Decl.Inf.Tomador.IdentificacaoTomador.CpfCnpj.Cnpj, n.Decl.Inf.Tomador.IdentificacaoTomador.CpfCnpj.Cpf),
+		TomadorNome:      n.Decl.Inf.Tomador.RazaoSocial, CodigoServico: s.ItemListaServico,
 		CodMunIncidencia: first(s.MunicipioIncidencia, s.CodigoMunicipio), CodMunPrestacao: s.CodigoMunicipio,
 		ValorServicos: v.ValorServicos.F(), ValorDeducoes: v.ValorDeducoes.F(),
 		BaseCalculo: n.ValoresNfse.BaseCalculo.F(), AliquotaISS: first2(n.ValoresNfse.Aliquota.F(), v.Aliquota.F()),

@@ -3,3 +3,4 @@ dados/
 *.db
 *.db-wal
 *.db-shm
+cmd/vorticis-monitor/rsrc_windows_*.syso

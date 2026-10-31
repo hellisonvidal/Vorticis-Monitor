@@ -13,12 +13,19 @@ Arquitetura completa (ERD, motor de regras, máquina de estados, endpoints): [`d
 - **Relatórios:** livros por CFOP/CST, apuração ICMS/ST/DIFAL por UF, PIS/COFINS, retenções (Reinf), inconsistências, rejeições, manifestação, contingência, conciliação, EFD ICMS/IPI, EFD-Contribuições, ZIP de XML + DANFE.
 - **Certificado digital A1** solicitado no primeiro uso, armazenado cifrado (AES-256-GCM + DPAPI).
 
-## Instalação no Windows
-1. Execute `VorticisMonitor-Setup-1.0.0.exe` (64 bits, como administrador).
-2. Acesse `http://localhost:8765`, crie o administrador, cadastre a empresa e **inclua o certificado .pfx**.
-3. Integre o ERP pela API (`X-API-Key` em Configurações › Integração) ou gravando XMLs em `C:\ProgramData\Vorticis\Monitor\importar`.
+## Downloads (pasta `release/`)
+| Arquivo | Para quê |
+|---|---|
+| `VorticisMonitor-Setup-1.0.0.exe` | **Instalador**: instala como serviço do Windows (roda em segundo plano, inicia com o sistema), atalhos e desinstalador. Requer administrador. |
+| `VorticisMonitor.exe` | **Executável avulso**: duplo clique inicia o monitor e abre o painel no navegador. Dados em `C:\ProgramData\Vorticis\Monitor`. |
+| `VorticisMonitor-Portatil-1.0.0.zip` | **Portátil**: extraia em qualquer pasta ou pendrive e execute `VorticisMonitor-Portatil.exe`. Sem instalação nem administrador; dados na subpasta `dados`. |
+| `SHA256SUMS.txt` | Hashes para conferência da integridade. |
 
-Linha de comando: `vorticis-monitor.exe run | service install|uninstall|start|stop | reset-senha LOGIN SENHA | version`.
+Em todos os casos: acesse o painel (normalmente `http://localhost:8765`), crie o administrador, cadastre a empresa e **inclua o certificado .pfx**. Integre o ERP pela API (`X-API-Key` em Configurações › Integração) ou gravando XMLs na pasta `importar`.
+
+Linha de comando: `VorticisMonitor.exe run | service install|uninstall|start|stop | reset-senha LOGIN SENHA | version` · opções `--portatil` e `--sem-navegador`.
+
+**Modo portátil** é ativado quando o nome do executável contém "portatil", quando existe o arquivo `vorticis.portatil` ao lado dele ou com `--portatil`. Nesse modo a chave que cifra o certificado fica na própria pasta (sem DPAPI), permitindo levá-la para outro computador — proteja a pasta.
 
 ## Modo servidor web
 ```bash
@@ -31,7 +38,7 @@ Requer Go 1.24+ e NSIS 3 (`apt install nsis`):
 ```bash
 ./build.sh
 ```
-Gera `dist/vorticis-monitor.exe`, `dist/vorticis-monitor-linux-amd64` e `dist/VorticisMonitor-Setup-<versão>.exe`.
+Gera em `dist/`: `VorticisMonitor.exe`, `VorticisMonitor-Portatil-<versão>.zip`, `VorticisMonitor-Setup-<versão>.exe`, `vorticis-monitor-linux-amd64` e `SHA256SUMS.txt`.
 
 ## Testes e amostras
 `go test ./...` · `python3 samples/gerar_amostras.py` gera XMLs fictícios (DIFAL correto, ST com erros, contingência SVC incorreta, devolução inválida, entrada para conciliação, NFS-e com retenções, CT-e).

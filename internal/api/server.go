@@ -594,13 +594,13 @@ func (s *Server) preEmissao(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) simDIFAL(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Base            float64 `json:"base"`
-		UFOrigem        string  `json:"uf_origem"`
-		UFDestino       string  `json:"uf_destino"`
-		OrigemMerc      string  `json:"origem_mercadoria"`
-		AliqInterna     float64 `json:"aliq_interna"`
-		FCP             *float64 `json:"fcp"`
-		Metodo          string  `json:"metodo"`
+		Base        float64  `json:"base"`
+		UFOrigem    string   `json:"uf_origem"`
+		UFDestino   string   `json:"uf_destino"`
+		OrigemMerc  string   `json:"origem_mercadoria"`
+		AliqInterna float64  `json:"aliq_interna"`
+		FCP         *float64 `json:"fcp"`
+		Metodo      string   `json:"metodo"`
 	}
 	if err := ler(r, &in); err != nil {
 		erro(w, 400, "JSON inválido")
@@ -623,16 +623,16 @@ func (s *Server) simDIFAL(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) simST(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		ValorProdutos float64 `json:"valor_produtos"`
+		ValorProdutos                        float64 `json:"valor_produtos"`
 		Frete, Seguro, Outras, Desconto, IPI float64
-		MVAOriginal   float64 `json:"mva_original"`
-		UFOrigem      string  `json:"uf_origem"`
-		UFDestino     string  `json:"uf_destino"`
-		OrigemMerc    string  `json:"origem_mercadoria"`
-		AliqIntra     float64 `json:"aliq_intra"`
-		RedBC         float64 `json:"reducao_bc"`
-		AjustarMVA    bool    `json:"ajustar_mva"`
-		NCM           string  `json:"ncm"`
+		MVAOriginal                          float64 `json:"mva_original"`
+		UFOrigem                             string  `json:"uf_origem"`
+		UFDestino                            string  `json:"uf_destino"`
+		OrigemMerc                           string  `json:"origem_mercadoria"`
+		AliqIntra                            float64 `json:"aliq_intra"`
+		RedBC                                float64 `json:"reducao_bc"`
+		AjustarMVA                           bool    `json:"ajustar_mva"`
+		NCM                                  string  `json:"ncm"`
 	}
 	if err := ler(r, &in); err != nil {
 		erro(w, 400, "JSON inválido")
@@ -662,9 +662,9 @@ func (s *Server) simST(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) simRetencoes(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Base     float64 `json:"base"`
-		Servico  string  `json:"servico"`
-		Simples  bool    `json:"prestador_simples"`
+		Base    float64 `json:"base"`
+		Servico string  `json:"servico"`
+		Simples bool    `json:"prestador_simples"`
 	}
 	ler(r, &in)
 	si := fiscal.CodigoServicoNormalizado(in.Servico)
@@ -685,7 +685,9 @@ func (s *Server) listarRegras(w http.ResponseWriter, r *http.Request) {
 
 // ---------- rejeições / alertas ----------
 
-func (s *Server) rejeicoes(w http.ResponseWriter, r *http.Request) { jsonOK(w, fiscal.ListaRejeicoes()) }
+func (s *Server) rejeicoes(w http.ResponseWriter, r *http.Request) {
+	jsonOK(w, fiscal.ListaRejeicoes())
+}
 
 func (s *Server) rejeicao(w http.ResponseWriter, r *http.Request) {
 	c, _ := strconv.Atoi(r.PathValue("codigo"))
@@ -704,8 +706,8 @@ func (s *Server) centralRejeicoes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type grupo struct {
-		Rejeicao   fiscal.Rejeicao     `json:"rejeicao"`
-		Documentos []*store.Documento  `json:"documentos"`
+		Rejeicao   fiscal.Rejeicao    `json:"rejeicao"`
+		Documentos []*store.Documento `json:"documentos"`
 	}
 	ag := map[int]*grupo{}
 	var ordem []int
@@ -905,7 +907,9 @@ func (s *Server) importarNCM(w http.ResponseWriter, r *http.Request) {
 
 // ---------- relatórios / escrituração ----------
 
-func (s *Server) catalogoRelatorios(w http.ResponseWriter, r *http.Request) { jsonOK(w, relatorios.Catalogo) }
+func (s *Server) catalogoRelatorios(w http.ResponseWriter, r *http.Request) {
+	jsonOK(w, relatorios.Catalogo)
+}
 
 func (s *Server) relatorio(w http.ResponseWriter, r *http.Request) {
 	f := filtro(r)
@@ -1002,8 +1006,8 @@ func (s *Server) lancamentos(w http.ResponseWriter, r *http.Request) {
 	}
 	type lanc struct {
 		*store.Documento
-		Itens []store.Item `json:"itens"`
-		CodSitSPED string  `json:"cod_sit_sped"`
+		Itens      []store.Item `json:"itens"`
+		CodSitSPED string       `json:"cod_sit_sped"`
 	}
 	out := []lanc{}
 	for _, d := range docs {

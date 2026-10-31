@@ -25,17 +25,17 @@ const (
 
 // Ocorrencia é um achado do motor de regras.
 type Ocorrencia struct {
-	Regra         string     `json:"regra"`
-	Grupo         string     `json:"grupo"`
-	Severidade    Severidade `json:"severidade"`
-	Item          int        `json:"item,omitempty"`
-	Campo         string     `json:"campo,omitempty"`
-	Mensagem      string     `json:"mensagem"`
-	Sugestao      string     `json:"sugestao,omitempty"`
-	Esperado      string     `json:"esperado,omitempty"`
-	Informado     string     `json:"informado,omitempty"`
-	CodRejeicao   int        `json:"cod_rejeicao,omitempty"`
-	AcaoCorrecao  string     `json:"acao_correcao,omitempty"`
+	Regra        string     `json:"regra"`
+	Grupo        string     `json:"grupo"`
+	Severidade   Severidade `json:"severidade"`
+	Item         int        `json:"item,omitempty"`
+	Campo        string     `json:"campo,omitempty"`
+	Mensagem     string     `json:"mensagem"`
+	Sugestao     string     `json:"sugestao,omitempty"`
+	Esperado     string     `json:"esperado,omitempty"`
+	Informado    string     `json:"informado,omitempty"`
+	CodRejeicao  int        `json:"cod_rejeicao,omitempty"`
+	AcaoCorrecao string     `json:"acao_correcao,omitempty"`
 }
 
 // Perfil é o enquadramento tributário da empresa monitorada.

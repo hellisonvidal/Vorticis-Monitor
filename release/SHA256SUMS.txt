@@ -1,0 +1,3 @@
+7b75e968db0caecc97da8aa72a7ad73fd5226b41550776b8b7be4f0557d7bdee  VorticisMonitor.exe
+2603b15d77cb4670038e196dbd37a3f70eb85112559c486c6a44047a6315c0bb  VorticisMonitor-Portatil-1.0.0.zip
+5149c165c798583dd8805a361a4975d29376326484419d3d9097af8deed8aa59  VorticisMonitor-Setup-1.0.0.exe

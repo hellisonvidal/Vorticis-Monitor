@@ -75,13 +75,13 @@ func CalculaICMSST(baseOperacao, mva, redBC, aliqIntra, icmsProprio float64) ICM
 
 // Retencoes calcula as retenções federais esperadas para uma NFS-e.
 type Retencoes struct {
-	IRRF     float64 `json:"irrf"`
-	PIS      float64 `json:"pis"`
-	COFINS   float64 `json:"cofins"`
-	CSLL     float64 `json:"csll"`
-	INSS     float64 `json:"inss"`
-	PCCDispensado bool `json:"pcc_dispensado"`
-	IRDispensado  bool `json:"ir_dispensado"`
+	IRRF          float64 `json:"irrf"`
+	PIS           float64 `json:"pis"`
+	COFINS        float64 `json:"cofins"`
+	CSLL          float64 `json:"csll"`
+	INSS          float64 `json:"inss"`
+	PCCDispensado bool    `json:"pcc_dispensado"`
+	IRDispensado  bool    `json:"ir_dispensado"`
 }
 
 // CalculaRetencoes aplica as alíquotas padrão: IRRF 1,5% (ou 1% p/ limpeza,

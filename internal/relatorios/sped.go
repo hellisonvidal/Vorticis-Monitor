@@ -34,11 +34,11 @@ func (p Periodo) filtro(empresaID int64) store.FiltroDocumentos {
 
 // escritor acumula registros e contadores para os blocos 9.
 type escritor struct {
-	w      *bufio.Writer
-	cont   map[string]int
-	bloco  map[byte]int
-	ordem  []string
-	total  int
+	w     *bufio.Writer
+	cont  map[string]int
+	bloco map[byte]int
+	ordem []string
+	total int
 }
 
 func novoEscritor(w io.Writer) *escritor {
@@ -230,7 +230,10 @@ func EFDICMSIPI(w io.Writer, s *store.Store, empresaID int64, p Periodo, versaoL
 		}
 	}
 	e.reg("C001", map[bool]string{true: "0", false: "1"}[temC])
-	type ana struct{ cst, cfop string; aliq float64 }
+	type ana struct {
+		cst, cfop string
+		aliq      float64
+	}
 	debitos, creditos := 0.0, 0.0
 	difalUF := map[string][2]float64{}
 	if temC {

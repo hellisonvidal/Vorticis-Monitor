@@ -126,18 +126,18 @@ func (s *Store) SalvarEmpresa(e *Empresa) error {
 // ---------------- Certificado ----------------
 
 type Certificado struct {
-	ID          int64  `json:"id"`
-	EmpresaID   int64  `json:"empresa_id"`
-	Tipo        string `json:"tipo"`
-	Titular     string `json:"titular"`
-	CNPJ        string `json:"cnpj"`
-	Serial      string `json:"serial"`
-	Emissor     string `json:"emissor"`
-	ValidoDe    string `json:"valido_de"`
-	ValidoAte   string `json:"valido_ate"`
-	DiasRestantes int  `json:"dias_restantes"`
-	PFX         []byte `json:"-"`
-	Senha       []byte `json:"-"`
+	ID            int64  `json:"id"`
+	EmpresaID     int64  `json:"empresa_id"`
+	Tipo          string `json:"tipo"`
+	Titular       string `json:"titular"`
+	CNPJ          string `json:"cnpj"`
+	Serial        string `json:"serial"`
+	Emissor       string `json:"emissor"`
+	ValidoDe      string `json:"valido_de"`
+	ValidoAte     string `json:"valido_ate"`
+	DiasRestantes int    `json:"dias_restantes"`
+	PFX           []byte `json:"-"`
+	Senha         []byte `json:"-"`
 }
 
 func (s *Store) SalvarCertificado(c *Certificado) error {
@@ -588,18 +588,18 @@ func (s *Store) Eventos(chave string) ([]Evento, error) {
 // ---------------- Dashboard ----------------
 
 type Resumo struct {
-	PorStatus     map[string]int     `json:"por_status"`
-	PorModelo     map[string]int     `json:"por_modelo"`
-	ValorPorDir   map[string]float64 `json:"valor_por_direcao"`
-	Tributos      map[string]float64 `json:"tributos"`
-	TopRejeicoes  []map[string]any   `json:"top_rejeicoes"`
-	TopRegras     []map[string]any   `json:"top_regras"`
-	AlertasAbertos int               `json:"alertas_abertos"`
-	ScoreMedio    float64            `json:"score_medio"`
-	Total         int                `json:"total"`
-	ComErro       int                `json:"com_erro"`
-	SemManifestacao int              `json:"sem_manifestacao"`
-	Divergentes   int                `json:"conciliacao_divergente"`
+	PorStatus       map[string]int     `json:"por_status"`
+	PorModelo       map[string]int     `json:"por_modelo"`
+	ValorPorDir     map[string]float64 `json:"valor_por_direcao"`
+	Tributos        map[string]float64 `json:"tributos"`
+	TopRejeicoes    []map[string]any   `json:"top_rejeicoes"`
+	TopRegras       []map[string]any   `json:"top_regras"`
+	AlertasAbertos  int                `json:"alertas_abertos"`
+	ScoreMedio      float64            `json:"score_medio"`
+	Total           int                `json:"total"`
+	ComErro         int                `json:"com_erro"`
+	SemManifestacao int                `json:"sem_manifestacao"`
+	Divergentes     int                `json:"conciliacao_divergente"`
 }
 
 func (s *Store) Resumo(f FiltroDocumentos) (*Resumo, error) {

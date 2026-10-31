@@ -45,7 +45,10 @@ func LivroEntradasSaidas(w io.Writer, s *store.Store, f store.FiltroDocumentos) 
 	if err != nil {
 		return err
 	}
-	type k struct{ dir, cfop, cst string; aliq float64 }
+	type k struct {
+		dir, cfop, cst string
+		aliq           float64
+	}
 	ag := map[k]*[7]float64{}
 	for _, d := range docs {
 		if d.Status != "AUTORIZADA" || d.Modelo == "NFSE" || d.Resumo {
@@ -97,7 +100,10 @@ func ApuracaoICMS(w io.Writer, s *store.Store, f store.FiltroDocumentos) error {
 	if err != nil {
 		return err
 	}
-	type tot struct{ debICMS, credICMS, st, difal, fcp float64; n int }
+	type tot struct {
+		debICMS, credICMS, st, difal, fcp float64
+		n                                 int
+	}
 	ag := map[string]*tot{}
 	for _, d := range docs {
 		if d.Status != "AUTORIZADA" || d.Resumo || d.Modelo == "NFSE" {

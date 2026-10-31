@@ -147,10 +147,10 @@ func (c *Cliente) StatusServico(ctx context.Context, uf, tpEmis string) (*RetSta
 // ---------- Consulta protocolo ----------
 
 type RetConsulta struct {
-	CStat     int    `xml:"cStat" json:"c_stat"`
-	XMotivo   string `xml:"xMotivo" json:"x_motivo"`
-	ChNFe     string `xml:"chNFe" json:"chave"`
-	ProtNFe   *struct {
+	CStat   int    `xml:"cStat" json:"c_stat"`
+	XMotivo string `xml:"xMotivo" json:"x_motivo"`
+	ChNFe   string `xml:"chNFe" json:"chave"`
+	ProtNFe *struct {
 		InfProt struct {
 			NProt    string `xml:"nProt"`
 			DhRecbto string `xml:"dhRecbto"`
@@ -269,13 +269,13 @@ var EventosManifestacao = map[string]string{
 }
 
 type RetEvento struct {
-	CStat       int    `xml:"cStat" json:"c_stat"`
-	XMotivo     string `xml:"xMotivo" json:"x_motivo"`
-	EventoCStat int    `json:"evento_c_stat"`
+	CStat        int    `xml:"cStat" json:"c_stat"`
+	XMotivo      string `xml:"xMotivo" json:"x_motivo"`
+	EventoCStat  int    `json:"evento_c_stat"`
 	EventoMotivo string `json:"evento_x_motivo"`
-	Protocolo   string `json:"protocolo"`
-	DhRegistro  string `json:"dh_registro"`
-	RetEvento   []struct {
+	Protocolo    string `json:"protocolo"`
+	DhRegistro   string `json:"dh_registro"`
+	RetEvento    []struct {
 		InfEvento struct {
 			CStat       int    `xml:"cStat"`
 			XMotivo     string `xml:"xMotivo"`

@@ -111,8 +111,8 @@ func rCFOP(c *Contexto) []Ocorrencia {
 		}
 		if e, ok := esperado[n.Ide.TpNF][n.Ide.IdDest]; ok && cfop[:1] != e {
 			out = append(out, Ocorrencia{Severidade: Erro, Item: d.NItem, Campo: "prod/CFOP",
-				Mensagem:  fmt.Sprintf("CFOP %s incompatível com tpNF=%s e idDest=%s", cfop, n.Ide.TpNF, n.Ide.IdDest),
-				Esperado:  e + "xxx", Informado: cfop, Sugestao: "Ajustar o primeiro dígito do CFOP: 1/5 interna, 2/6 interestadual, 3/7 exterior."})
+				Mensagem: fmt.Sprintf("CFOP %s incompatível com tpNF=%s e idDest=%s", cfop, n.Ide.TpNF, n.Ide.IdDest),
+				Esperado: e + "xxx", Informado: cfop, Sugestao: "Ajustar o primeiro dígito do CFOP: 1/5 interna, 2/6 interestadual, 3/7 exterior."})
 		}
 		if n.Ide.IdDest == "2" && n.Dest.EnderDest.UF == n.Emit.EnderEmit.UF {
 			out = append(out, Ocorrencia{Severidade: Erro, Campo: "ide/idDest", Mensagem: "idDest=2 (interestadual) mas emitente e destinatário estão na mesma UF"})

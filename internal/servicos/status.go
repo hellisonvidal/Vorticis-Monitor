@@ -3,15 +3,15 @@ package servicos
 
 // Status do documento no Monitor (ver docs/ARQUITETURA.md §3).
 const (
-	StPendente     = "PENDENTE"     // recebido do ERP, ainda sem retorno da SEFAZ
-	StValidacao    = "BLOQUEADA"    // reprovado na pré-validação (não deve ser transmitido)
+	StPendente     = "PENDENTE"  // recebido do ERP, ainda sem retorno da SEFAZ
+	StValidacao    = "BLOQUEADA" // reprovado na pré-validação (não deve ser transmitido)
 	StAutorizada   = "AUTORIZADA"
 	StCancelada    = "CANCELADA"
 	StDenegada     = "DENEGADA"
 	StRejeitada    = "REJEITADA"
 	StContingencia = "CONTINGENCIA" // emitido em contingência, aguardando transmissão/autorização
 	StInutilizada  = "INUTILIZADA"
-	StResumo       = "RESUMO"       // resNFe recebido; aguardando ciência/download do XML completo
+	StResumo       = "RESUMO" // resNFe recebido; aguardando ciência/download do XML completo
 )
 
 // StatusPorCStat converte o código de retorno da SEFAZ em status do Monitor.

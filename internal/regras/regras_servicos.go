@@ -110,8 +110,8 @@ func sRetencoes(c *Contexto) []Ocorrencia {
 				out = append(out, Ocorrencia{Severidade: Alerta, Campo: "PCC", Mensagem: "PIS/COFINS/CSLL retidos ≤ R$ 10,00 são dispensados (Lei 13.137/2015)", Informado: fmtv(pcc)})
 			}
 			for _, x := range []struct {
-				nome     string
-				v, aliq  float64
+				nome    string
+				v, aliq float64
 			}{{"PIS", n.ValorPIS, 0.65}, {"COFINS", n.ValorCOFINS, 3}, {"CSLL", n.ValorCSLL, 1}} {
 				if e := r2(base * x.aliq / 100); x.v > 0 && difere(e, x.v) {
 					out = append(out, Ocorrencia{Severidade: Alerta, Campo: "ret" + x.nome, Mensagem: fmt.Sprintf("Retenção de %s diverge de %.2f%%", x.nome, x.aliq), Esperado: fmtv(e), Informado: fmtv(x.v)})

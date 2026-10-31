@@ -11,8 +11,8 @@ import (
 )
 
 type Config struct {
-	Host string `json:"host"` // 127.0.0.1 (somente local) | 0.0.0.0 (rede/servidor web)
-	Porta int   `json:"porta"`
+	Host  string `json:"host"` // 127.0.0.1 (somente local) | 0.0.0.0 (rede/servidor web)
+	Porta int    `json:"porta"`
 	// TLS opcional para o modo web (certificado do servidor, não o e-CNPJ).
 	TLSCert string `json:"tls_cert,omitempty"`
 	TLSKey  string `json:"tls_key,omitempty"`
@@ -23,18 +23,18 @@ type Config struct {
 	VerificarTLSSefaz bool   `json:"verificar_tls_sefaz"`
 	CadeiaICPBrasil   string `json:"cadeia_icp_brasil,omitempty"` // PEM adicional de ACs (ICP-Brasil)
 
-	IntervaloDistDFeMin      int  `json:"intervalo_distdfe_min"`
-	IntervaloVarreduraSeg    int  `json:"intervalo_varredura_seg"`
-	PrazoCancelNFeHoras      int  `json:"prazo_cancelamento_nfe_horas"`
-	PrazoCancelNFCeMin       int  `json:"prazo_cancelamento_nfce_min"`
-	PrazoManifestacaoDias    int  `json:"prazo_manifestacao_dias"`
-	PrazoCienciaDias         int  `json:"prazo_ciencia_dias"`
-	AntecedenciaAlertaHoras  int  `json:"antecedencia_alerta_horas"`
-	DiasAlertaCertificado    int  `json:"dias_alerta_certificado"`
-	ToleranciaPrecoPct       float64 `json:"tolerancia_preco_pct"`
-	ToleranciaQtdPct         float64 `json:"tolerancia_qtd_pct"`
-	PastaMonitorada          string  `json:"pasta_monitorada,omitempty"` // importação automática de XML (ERP grava aqui)
-	ConsultarPendentesSefaz  bool    `json:"consultar_pendentes_sefaz"`
+	IntervaloDistDFeMin     int     `json:"intervalo_distdfe_min"`
+	IntervaloVarreduraSeg   int     `json:"intervalo_varredura_seg"`
+	PrazoCancelNFeHoras     int     `json:"prazo_cancelamento_nfe_horas"`
+	PrazoCancelNFCeMin      int     `json:"prazo_cancelamento_nfce_min"`
+	PrazoManifestacaoDias   int     `json:"prazo_manifestacao_dias"`
+	PrazoCienciaDias        int     `json:"prazo_ciencia_dias"`
+	AntecedenciaAlertaHoras int     `json:"antecedencia_alerta_horas"`
+	DiasAlertaCertificado   int     `json:"dias_alerta_certificado"`
+	ToleranciaPrecoPct      float64 `json:"tolerancia_preco_pct"`
+	ToleranciaQtdPct        float64 `json:"tolerancia_qtd_pct"`
+	PastaMonitorada         string  `json:"pasta_monitorada,omitempty"` // importação automática de XML (ERP grava aqui)
+	ConsultarPendentesSefaz bool    `json:"consultar_pendentes_sefaz"`
 
 	DataDir string `json:"-"`
 }

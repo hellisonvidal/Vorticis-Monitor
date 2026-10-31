@@ -8,11 +8,11 @@ import (
 
 // Servicos identifica os webservices utilizados pelo Monitor.
 const (
-	SvcStatus      = "NFeStatusServico4"
-	SvcConsulta    = "NFeConsultaProtocolo4"
-	SvcDistDFe     = "NFeDistribuicaoDFe"
-	SvcEvento      = "NFeRecepcaoEvento4"
-	SvcCadastro    = "CadConsultaCadastro4"
+	SvcStatus   = "NFeStatusServico4"
+	SvcConsulta = "NFeConsultaProtocolo4"
+	SvcDistDFe  = "NFeDistribuicaoDFe"
+	SvcEvento   = "NFeRecepcaoEvento4"
+	SvcCadastro = "CadConsultaCadastro4"
 )
 
 // autorizadorPorUF: SEFAZ autorizadora de NF-e de cada UF.

@@ -13,10 +13,10 @@ import (
 type Tipo string
 
 const (
-	TipoNFe    Tipo = "NFE"   // modelo 55
-	TipoNFCe   Tipo = "NFCE"  // modelo 65
-	TipoCTe    Tipo = "CTE"   // modelo 57/67
-	TipoMDFe   Tipo = "MDFE"  // modelo 58
+	TipoNFe    Tipo = "NFE"  // modelo 55
+	TipoNFCe   Tipo = "NFCE" // modelo 65
+	TipoCTe    Tipo = "CTE"  // modelo 57/67
+	TipoMDFe   Tipo = "MDFE" // modelo 58
 	TipoNFSe   Tipo = "NFSE"
 	TipoEvento Tipo = "EVENTO"
 	TipoResumo Tipo = "RESUMO_NFE"

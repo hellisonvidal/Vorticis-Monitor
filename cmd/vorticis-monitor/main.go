@@ -8,6 +8,11 @@
 //	vorticis-monitor service start|stop  controla o serviço
 //	vorticis-monitor reset-senha LOGIN   redefine a senha de um usuário
 //	vorticis-monitor version
+//
+// Modo portátil: ativado quando o executável contém "portatil" no nome, quando
+// existe o arquivo "vorticis.portatil" ao lado dele ou com a opção --portatil.
+// Os dados ficam em <pasta do executável>\dados e nenhum serviço é instalado.
+// Opção --sem-navegador evita abrir o painel automaticamente.
 package main
 
 import (
@@ -21,6 +26,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -35,15 +41,60 @@ import (
 
 const nomeServico = "VorticisMonitor"
 
+var (
+	portatil     bool
+	semNavegador bool
+)
+
+// args remove as opções globais (--portatil, --sem-navegador) da linha de comando.
+func args() []string {
+	var out []string
+	for _, a := range os.Args[1:] {
+		switch a {
+		case "--portatil":
+			portatil = true
+		case "--sem-navegador":
+			semNavegador = true
+		default:
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+func detectarPortatil() {
+	exe, err := os.Executable()
+	if err != nil {
+		return
+	}
+	dir := filepath.Dir(exe)
+	if strings.Contains(strings.ToLower(filepath.Base(exe)), "portatil") {
+		portatil = true
+	}
+	if _, err := os.Stat(filepath.Join(dir, "vorticis.portatil")); err == nil {
+		portatil = true
+	}
+	if portatil {
+		if os.Getenv("VORTICIS_DATA") == "" {
+			os.Setenv("VORTICIS_DATA", filepath.Join(dir, "dados"))
+		}
+		// A chave-mestra acompanha a pasta (não fica presa à DPAPI desta máquina).
+		keystore.SemProtecaoMaquina = true
+	}
+}
+
 func main() {
 	if executandoComoServico() {
 		executarServico()
 		return
 	}
+	a := args()
+	detectarPortatil()
 	cmd := "run"
-	if len(os.Args) > 1 {
-		cmd = os.Args[1]
+	if len(a) > 0 {
+		cmd = a[0]
 	}
+	os.Args = append(os.Args[:1], a...)
 	switch cmd {
 	case "run":
 		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -52,6 +103,9 @@ func main() {
 			log.Fatal(err)
 		}
 	case "service":
+		if portatil {
+			log.Fatal("a versão portátil não instala serviço; use o instalador VorticisMonitor-Setup")
+		}
 		if len(os.Args) < 3 {
 			log.Fatal("uso: vorticis-monitor service install|uninstall|start|stop")
 		}
@@ -112,9 +166,12 @@ func executar(ctx context.Context) error {
 	mon := servicos.Novo(st, cfg, cofre)
 	go mon.Iniciar(ctx)
 	srv := &http.Server{
-		Addr:              net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Porta)),
 		Handler:           (&api.Server{M: mon, Static: web.Static()}).Handler(),
 		ReadHeaderTimeout: 15 * time.Second,
+	}
+	ln, err := escutar(cfg.Host, cfg.Porta, !executandoComoServico())
+	if err != nil {
+		return err
 	}
 	go func() {
 		<-ctx.Done()
@@ -126,16 +183,48 @@ func executar(ctx context.Context) error {
 	if cfg.TLSCert != "" {
 		esquema = "https"
 	}
-	log.Printf("Vorticis Monitor %s — painel em %s://%s (dados: %s)", api.Versao, esquema, srv.Addr, cfg.DataDir)
+	porta := ln.Addr().(*net.TCPAddr).Port
+	url := fmt.Sprintf("%s://localhost:%d/", esquema, porta)
+	modo := "instalado"
+	if portatil {
+		modo = "portátil"
+	}
+	log.Printf("Vorticis Monitor %s (%s) — painel em %s (escuta %s, dados: %s)", api.Versao, modo, url, ln.Addr(), cfg.DataDir)
+	if !executandoComoServico() {
+		fmt.Printf("\n  Vorticis Monitor %s — %s\n  Painel: %s\n  Dados:  %s\n  Feche esta janela (ou Ctrl+C) para encerrar.\n\n", api.Versao, modo, url, cfg.DataDir)
+		if !semNavegador {
+			go func() { time.Sleep(700 * time.Millisecond); abrirNavegador(url) }()
+		}
+	}
 	if cfg.TLSCert != "" {
-		err = srv.ListenAndServeTLS(cfg.TLSCert, cfg.TLSKey)
+		err = srv.ServeTLS(ln, cfg.TLSCert, cfg.TLSKey)
 	} else {
-		err = srv.ListenAndServe()
+		err = srv.Serve(ln)
 	}
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil
 	}
 	return err
+}
+
+// escutar abre a porta configurada; em uso interativo tenta as 10 seguintes se estiver ocupada.
+func escutar(host string, porta int, tentarOutras bool) (net.Listener, error) {
+	tentativas := 1
+	if tentarOutras {
+		tentativas = 11
+	}
+	var ultimo error
+	for i := 0; i < tentativas; i++ {
+		ln, err := net.Listen("tcp", net.JoinHostPort(host, strconv.Itoa(porta+i)))
+		if err == nil {
+			if i > 0 {
+				log.Printf("porta %d ocupada; usando %d", porta, porta+i)
+			}
+			return ln, nil
+		}
+		ultimo = err
+	}
+	return nil, ultimo
 }
 
 func resetSenha(login, senha string) {

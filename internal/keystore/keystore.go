@@ -4,6 +4,7 @@
 package keystore
 
 import (
+	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
@@ -14,12 +15,20 @@ import (
 
 type Cofre struct{ aead cipher.AEAD }
 
+// SemProtecaoMaquina desativa a DPAPI (modo portátil): a chave-mestra fica apenas
+// no arquivo, permitindo levar a pasta para outro computador. Proteja a pasta.
+var SemProtecaoMaquina bool
+
+// prefixoPlano marca chaves-mestras gravadas sem DPAPI.
+var prefixoPlano = []byte("VTXK1:")
+
 func Abrir(dir string) (*Cofre, error) {
 	p := filepath.Join(dir, "chave.mestra")
 	var chave []byte
 	if b, err := os.ReadFile(p); err == nil {
-		chave, err = desproteger(b)
-		if err != nil {
+		if bytes.HasPrefix(b, prefixoPlano) {
+			chave = b[len(prefixoPlano):]
+		} else if chave, err = desproteger(b); err != nil {
 			return nil, err
 		}
 	} else {
@@ -27,9 +36,12 @@ func Abrir(dir string) (*Cofre, error) {
 		if _, err := rand.Read(chave); err != nil {
 			return nil, err
 		}
-		prot, err := proteger(chave)
-		if err != nil {
-			return nil, err
+		prot := append(append([]byte{}, prefixoPlano...), chave...)
+		if !SemProtecaoMaquina {
+			var err error
+			if prot, err = proteger(chave); err != nil {
+				return nil, err
+			}
 		}
 		if err := os.WriteFile(p, prot, 0o600); err != nil {
 			return nil, err
