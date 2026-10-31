@@ -15,7 +15,7 @@ Unicode true
 !define REGUNINST "Software\Microsoft\Windows\CurrentVersion\Uninstall\VorticisMonitor"
 
 Name "${APP} ${VERSAO}"
-OutFile "..\dist\VorticisMonitor-Setup-${VERSAO}.exe"
+OutFile "..\dist\instalador\VorticisMonitor-Setup-${VERSAO}.exe"
 InstallDir "$LOCALAPPDATA\Programs\Vorticis\Monitor"
 InstallDirRegKey HKCU "Software\Vorticis\Monitor" "InstallDir"
 RequestExecutionLevel user
@@ -33,7 +33,7 @@ VIAddVersionKey "LegalCopyright" "(c) 2026 Vorticis"
 !define MUI_UNICON "vorticis.ico"
 !define MUI_ABORTWARNING
 !define MUI_WELCOMEPAGE_TITLE "Bem-vindo ao ${APP}"
-!define MUI_WELCOMEPAGE_TEXT "Monitor fiscal em tempo real para NF-e, NFC-e, CT-e, MDF-e, NFS-e e SPED.$\r$\n$\r$\nA instalação é feita apenas para o seu usuário e não exige permissão de administrador.$\r$\n$\r$\nO programa abre em janela própria (não usa o navegador). Após a instalação, cadastre a empresa e inclua o certificado digital A1 (.pfx).$\r$\n$\r$\nRequisito: Microsoft Edge WebView2 Runtime (já incluído no Windows 10 e 11 atualizados)."
+!define MUI_WELCOMEPAGE_TEXT "Monitor fiscal em tempo real: consulta de NF-e, NFC-e, CT-e, MDF-e e NFS-e emitidas e recebidas, com relatórios em PDF e Excel.$\r$\n$\r$\nA instalação é feita apenas para o seu usuário e não exige permissão de administrador.$\r$\n$\r$\nO programa abre em janela própria (não usa o navegador). Após a instalação, cadastre a empresa e inclua o certificado digital (instalado no Windows ou arquivo .pfx).$\r$\n$\r$\nRequisito: Microsoft Edge WebView2 Runtime (já incluído no Windows 10 e 11 atualizados)."
 !define MUI_FINISHPAGE_RUN
 !define MUI_FINISHPAGE_RUN_TEXT "Abrir o ${APP} agora"
 !define MUI_FINISHPAGE_RUN_FUNCTION Iniciar
@@ -66,7 +66,7 @@ Section "!${APP} (obrigatório)" SecApp
   nsExec::Exec 'taskkill /IM ${EXE} /F'
   Sleep 1000
   SetOutPath "$INSTDIR"
-  File "..\dist\${EXE}"
+  File "..\dist\build\${EXE}"
   File "vorticis.ico"
   File "LICENCA.txt"
   File "..\README.md"
@@ -101,7 +101,7 @@ Section "Atalhos no Menu Iniciar e Área de Trabalho" SecAtalhos
 SectionEnd
 
 Section "Iniciar automaticamente ao entrar no Windows" SecInicio
-  ; Sem serviço: inicia minimizado no logon do usuário (captura DF-e, alertas e consultas em segundo plano)
+  ; Sem serviço: inicia minimizado no logon do usuário (busca de notas recebidas em segundo plano)
   CreateShortcut "$SMSTARTUP\Vorticis Monitor.lnk" "$INSTDIR\${EXE}" "--minimizado" "$INSTDIR\vorticis.ico" 0 SW_SHOWMINIMIZED
 SectionEnd
 
@@ -116,7 +116,7 @@ SectionEnd
 
 LangString DESC_App ${LANG_PORTUGUESEBR} "Executável, painel web, documentação e XMLs de exemplo."
 LangString DESC_Atalhos ${LANG_PORTUGUESEBR} "Atalhos para abrir o programa."
-LangString DESC_Inicio ${LANG_PORTUGUESEBR} "Abre o programa minimizado sempre que você entrar no Windows, mantendo a captura de XML e os alertas ativos."
+LangString DESC_Inicio ${LANG_PORTUGUESEBR} "Abre o programa minimizado sempre que você entrar no Windows, mantendo a busca das notas recebidas ativa."
 LangString DESC_Rede ${LANG_PORTUGUESEBR} "Libera a API do monitor para ERPs em outros computadores (porta ${PORTA}). Se o firewall bloquear, peça ao suporte para liberar a porta."
 !insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
   !insertmacro MUI_DESCRIPTION_TEXT ${SecApp} $(DESC_App)

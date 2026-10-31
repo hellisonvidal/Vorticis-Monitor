@@ -32,6 +32,14 @@ func Open(path string) (*Store, error) {
 	if _, err := db.Exec(schema); err != nil {
 		return nil, fmt.Errorf("aplicando esquema: %w", err)
 	}
+	// Migrações simples (colunas novas em bancos já existentes; erro de coluna duplicada é ignorado).
+	for _, m := range []string{
+		`ALTER TABLE nsu_controle ADD COLUMN ultima_consulta TEXT`,
+		`ALTER TABLE nsu_controle ADD COLUMN bloqueios INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE nsu_controle ADD COLUMN concorrente INTEGER NOT NULL DEFAULT 0`,
+	} {
+		db.Exec(m)
+	}
 	s := &Store{DB: db}
 	var n int
 	db.QueryRow(`SELECT COUNT(*) FROM param_uf`).Scan(&n)
@@ -377,6 +385,7 @@ type FiltroDocumentos struct {
 	Modelo    string
 	Direcao   string
 	De, Ate   string
+	Todos     bool // sem paginação (relatórios)
 	Busca     string
 	Pagina    int
 	PorPagina int
@@ -397,7 +406,11 @@ func (f FiltroDocumentos) where() (string, []any) {
 		}
 	}
 	if f.Modelo != "" {
-		w, a = append(w, "modelo = ?"), append(a, f.Modelo)
+		ms := strings.Split(f.Modelo, ",")
+		w = append(w, "modelo IN ("+strings.TrimSuffix(strings.Repeat("?,", len(ms)), ",")+")")
+		for _, m := range ms {
+			a = append(a, m)
+		}
 	}
 	if f.Direcao != "" {
 		w, a = append(w, "direcao = ?"), append(a, f.Direcao)
@@ -420,7 +433,9 @@ func (f FiltroDocumentos) where() (string, []any) {
 }
 
 func (s *Store) ListarDocumentos(f FiltroDocumentos) ([]*Documento, int, error) {
-	if f.PorPagina <= 0 || f.PorPagina > 5000 {
+	if f.Todos {
+		f.Pagina, f.PorPagina = 1, 1000000
+	} else if f.PorPagina <= 0 || f.PorPagina > 5000 {
 		f.PorPagina = 50
 	}
 	if f.Pagina <= 0 {
@@ -656,27 +671,39 @@ type NSU struct {
 	UltimoCStat     int    `json:"ultimo_c_stat"`
 	UltimoMotivo    string `json:"ultimo_motivo"`
 	UpdatedAt       string `json:"updated_at"`
+	// UltimaConsulta é o horário da última chamada feita por ESTE monitor à SEFAZ.
+	UltimaConsulta string `json:"ultima_consulta"`
+	// Bloqueios conta as rejeições 656 (consumo indevido) seguidas.
+	Bloqueios int `json:"bloqueios"`
+	// Concorrente indica que outro sistema (outro monitor de notas, ERP) consulta o mesmo CNPJ.
+	Concorrente bool `json:"concorrente"`
+}
+
+const colsNSU = `empresa_id, servico, ult_nsu, COALESCE(max_nsu,''), COALESCE(proxima_consulta,''), COALESCE(ultimo_c_stat,0), COALESCE(ultimo_motivo,''), COALESCE(updated_at,''), COALESCE(ultima_consulta,''), bloqueios, concorrente`
+
+func scanNSU(sc interface{ Scan(...any) error }, n *NSU) error {
+	return sc.Scan(&n.EmpresaID, &n.Servico, &n.UltNSU, &n.MaxNSU, &n.ProximaConsulta, &n.UltimoCStat, &n.UltimoMotivo, &n.UpdatedAt, &n.UltimaConsulta, &n.Bloqueios, &n.Concorrente)
 }
 
 func (s *Store) ObterNSU(empresaID int64, servico string) NSU {
 	n := NSU{EmpresaID: empresaID, Servico: servico, UltNSU: "000000000000000"}
-	s.DB.QueryRow(`SELECT ult_nsu, COALESCE(max_nsu,''), COALESCE(proxima_consulta,''), COALESCE(ultimo_c_stat,0), COALESCE(ultimo_motivo,''), COALESCE(updated_at,'') FROM nsu_controle WHERE empresa_id=? AND servico=?`,
-		empresaID, servico).Scan(&n.UltNSU, &n.MaxNSU, &n.ProximaConsulta, &n.UltimoCStat, &n.UltimoMotivo, &n.UpdatedAt)
+	scanNSU(s.DB.QueryRow(`SELECT `+colsNSU+` FROM nsu_controle WHERE empresa_id=? AND servico=?`, empresaID, servico), &n)
 	return n
 }
 
 func (s *Store) SalvarNSU(n NSU) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, err := s.DB.Exec(`INSERT INTO nsu_controle (empresa_id, servico, ult_nsu, max_nsu, proxima_consulta, ultimo_c_stat, ultimo_motivo, updated_at) VALUES (?,?,?,?,?,?,?,?)
+	_, err := s.DB.Exec(`INSERT INTO nsu_controle (empresa_id, servico, ult_nsu, max_nsu, proxima_consulta, ultimo_c_stat, ultimo_motivo, updated_at, ultima_consulta, bloqueios, concorrente) VALUES (?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT (empresa_id, servico) DO UPDATE SET ult_nsu=excluded.ult_nsu, max_nsu=excluded.max_nsu, proxima_consulta=excluded.proxima_consulta,
-		ultimo_c_stat=excluded.ultimo_c_stat, ultimo_motivo=excluded.ultimo_motivo, updated_at=excluded.updated_at`,
-		n.EmpresaID, n.Servico, n.UltNSU, n.MaxNSU, n.ProximaConsulta, n.UltimoCStat, n.UltimoMotivo, agora())
+		ultimo_c_stat=excluded.ultimo_c_stat, ultimo_motivo=excluded.ultimo_motivo, updated_at=excluded.updated_at,
+		ultima_consulta=excluded.ultima_consulta, bloqueios=excluded.bloqueios, concorrente=excluded.concorrente`,
+		n.EmpresaID, n.Servico, n.UltNSU, n.MaxNSU, n.ProximaConsulta, n.UltimoCStat, n.UltimoMotivo, agora(), n.UltimaConsulta, n.Bloqueios, n.Concorrente)
 	return err
 }
 
 func (s *Store) ListarNSU() ([]NSU, error) {
-	rows, err := s.DB.Query(`SELECT empresa_id, servico, ult_nsu, COALESCE(max_nsu,''), COALESCE(proxima_consulta,''), COALESCE(ultimo_c_stat,0), COALESCE(ultimo_motivo,''), COALESCE(updated_at,'') FROM nsu_controle`)
+	rows, err := s.DB.Query(`SELECT ` + colsNSU + ` FROM nsu_controle`)
 	if err != nil {
 		return nil, err
 	}
@@ -684,7 +711,7 @@ func (s *Store) ListarNSU() ([]NSU, error) {
 	out := []NSU{}
 	for rows.Next() {
 		var n NSU
-		rows.Scan(&n.EmpresaID, &n.Servico, &n.UltNSU, &n.MaxNSU, &n.ProximaConsulta, &n.UltimoCStat, &n.UltimoMotivo, &n.UpdatedAt)
+		scanNSU(rows, &n)
 		out = append(out, n)
 	}
 	return out, nil

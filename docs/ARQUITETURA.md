@@ -28,7 +28,7 @@ Programa para Windows de **consulta e monitoramento de documentos fiscais**: NF-
 | `internal/regras` | Motor de regras + cálculos (DIFAL, MVA ajustada, ICMS-ST, retenções) |
 | `internal/sefaz` | Certificado A1 (PFX), webservices por UF, SOAP 1.2 mTLS, Distribuição DF-e, Consulta Protocolo, Status Serviço, Manifestação com XMLDSig |
 | `internal/servicos` | Orquestração: ingestão, devolução, captura DF-e, consulta de situação, manifestação, agendador, hub SSE/webhooks, máquina de estados |
-| `internal/relatorios` | DANFE/DACTE/DAMDFE/DANFSe em PDF (com Code 128) e exportação ZIP dos documentos selecionados |
+| `internal/relatorios` | DANFE/DACTE/DAMDFE/DANFSe em PDF (com Code 128), exportação ZIP dos documentos selecionados e relatórios em PDF/XLSX/XLS (BIFF8)/CSV (`GET /api/v1/relatorios/{id}?formato=`) |
 | `internal/cadastro` | Cadastro da empresa pelo CNPJ: Receita Federal (BrasilAPI/CNPJ.ws/ReceitaWS) e IE (Sintegra via CNPJ.ws e SEFAZ CadConsultaCadastro4 com certificado) |
 | `internal/store` | Persistência (esquema relacional) |
 | `internal/api` | REST, autenticação (PBKDF2 + token HMAC, API-Key), perfis |
@@ -180,7 +180,7 @@ Mapeamento `cStat → status` em `servicos.StatusPorCStat`; transições validad
 | SEFAZ fora do ar (108/109, timeout) | consulta de status / erro de rede | nova tentativa no próximo ciclo; auditoria NFE090 no documento |
 | Contingência sem transmissão | situação do documento | status `CONTINGENCIA` visível nas consultas até a autorização |
 | Duplicidade 204/539 | cStat | consulta pela chave recupera o protocolo existente |
-| Consumo indevido 656 / nada novo 137 | DF-e | `nsu_controle.proxima_consulta = agora + 1 h`; sempre usa `ultNSU` |
+| Consumo indevido 656 / nada novo 137 | DF-e | `proxima_consulta = agora + intervalo` (mín. 60 min, padrão 65); sempre usa `ultNSU`; "Buscar agora" não fura a espera. 656 sem consulta própria na última hora ⇒ `concorrente = 1` (outro sistema usa o CNPJ): intervalo mínimo de 2 h + folga aleatória; 656 repetido amplia a espera até 3 h |
 | Certificado ausente/vencido | cadastro / uso | aviso na tela; chamadas à SEFAZ bloqueadas até incluir certificado válido |
 | Certificado de outro CNPJ | upload | recusa (evita rejeição 213) |
 | Provedor de CNPJ indisponível | consulta de cadastro | fallback BrasilAPI → CNPJ.ws → ReceitaWS; IE pela SEFAZ com certificado |

@@ -1,3 +1,2 @@
-fe6cd438ae75b3a68c3ab1b53d1fd35181cbff6c2b74be3ef2c1d5e97526cb35  VorticisMonitor.exe
-e70644824092310f9e1876aa818f53885df7ea0024c1c8c2fbb4f106b2b1c2b7  VorticisMonitor-Portatil-1.0.0.zip
-2f99f3b20d8191cefbf8b366967655621713c0f2e599c311f19f8b7f6a5f3c4b  VorticisMonitor-Setup-1.0.0.exe
+dfc0ac548973854e212f0cba97b9316cb9bccf51c46c4926dca32141501cb2a9  instalador/VorticisMonitor-Setup-1.1.0.exe
+30d555d140789d91a9b8a322b56ce43b47a2cf1ca37665576ffa94d0025c92bc  portatil/VorticisMonitor-Portatil-1.1.0.exe

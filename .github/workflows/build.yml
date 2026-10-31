@@ -22,7 +22,7 @@ jobs:
         with:
           go-version: "1.24"
 
-      - name: Dependências (NSIS e zip)
+      - name: Dependências (NSIS)
         run: sudo apt-get update && sudo apt-get install -y nsis zip
 
       - name: Versão
@@ -46,15 +46,17 @@ jobs:
       - name: Testes, compilação e pacotes
         run: ./build.sh
 
-      - name: Artefatos da execução
+      - name: Artefato — instalador
         uses: actions/upload-artifact@v4
         with:
-          name: VorticisMonitor-windows
-          path: |
-            dist/VorticisMonitor.exe
-            dist/VorticisMonitor-Portatil-*.zip
-            dist/VorticisMonitor-Setup-*.exe
-            dist/SHA256SUMS.txt
+          name: VorticisMonitor-Instalador-${{ env.VERSAO }}
+          path: dist/instalador/
+
+      - name: Artefato — portátil
+        uses: actions/upload-artifact@v4
+        with:
+          name: VorticisMonitor-Portatil-${{ env.VERSAO }}
+          path: dist/portatil/
 
       - name: Publicar Release
         if: env.PUBLICAR == '1'
@@ -64,16 +66,14 @@ jobs:
           target_commitish: ${{ github.sha }}
           name: Vorticis Monitor ${{ env.VERSAO }}
           body: |
-            **Downloads**
-            - `VorticisMonitor-Setup-${{ env.VERSAO }}.exe` — **instalador** (recomendado): instala no computador para o usuário atual, sem exigir administrador
-            - `VorticisMonitor-Portatil-${{ env.VERSAO }}.zip` — **portátil**: extraia e abra `VorticisMonitor-Portatil.exe`, sem instalação
-            - `VorticisMonitor.exe` — executável avulso
-            - `SHA256SUMS.txt` — hashes de integridade
+            **Escolha uma das versões:**
+            - **Instalador** — `VorticisMonitor-Setup-${{ env.VERSAO }}.exe`: instala no computador para o usuário atual (sem administrador), com atalhos e início automático.
+            - **Portátil** — `VorticisMonitor-Portatil-${{ env.VERSAO }}.exe`: arquivo único, sem instalação. Coloque numa pasta (ou pendrive) e abra; os dados ficam na pasta `dados` ao lado do arquivo.
+            - `SHA256SUMS.txt` — hashes de integridade.
 
             O programa abre em janela própria do Windows (não usa o navegador). Requisito: Microsoft Edge WebView2 Runtime, já incluído no Windows 10/11 atualizados.
             No primeiro uso, crie o administrador do programa, cadastre a empresa e inclua o certificado digital A1.
           files: |
-            dist/VorticisMonitor.exe
-            dist/VorticisMonitor-Portatil-*.zip
-            dist/VorticisMonitor-Setup-*.exe
+            dist/instalador/VorticisMonitor-Setup-*.exe
+            dist/portatil/VorticisMonitor-Portatil-*.exe
             dist/SHA256SUMS.txt

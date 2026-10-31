@@ -42,7 +42,7 @@ type Config struct {
 func padrao() *Config {
 	return &Config{
 		Host: "127.0.0.1", Porta: 8765, VerificarTLSSefaz: true,
-		IntervaloDistDFeMin: 60, IntervaloVarreduraSeg: 60,
+		IntervaloDistDFeMin: 65, IntervaloVarreduraSeg: 60,
 		PrazoCancelNFeHoras: 24, PrazoCancelNFCeMin: 30,
 		PrazoManifestacaoDias: 180, PrazoCienciaDias: 10, AntecedenciaAlertaHoras: 6,
 		DiasAlertaCertificado: 30, ToleranciaPrecoPct: 1, ToleranciaQtdPct: 0,

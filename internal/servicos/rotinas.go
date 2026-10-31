@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"math/rand/v2"
 	"strings"
 	"time"
 
@@ -26,14 +27,27 @@ type ResultadoCaptura struct {
 	Ignorado   bool   `json:"ignorado"`
 }
 
-// CapturarDistDFe busca os documentos destinados à empresa no Ambiente Nacional,
-// respeitando ultNSU e o intervalo mínimo de 1 hora após cStat 137/656.
+// CapturarDistDFe busca os documentos destinados à empresa no Ambiente Nacional.
+//
+// Regras para conviver com outros sistemas que usam o mesmo CNPJ (outro monitor
+// de notas, ERP, contador): a SEFAZ controla o consumo por CNPJ, não por
+// programa. Quando não há documentos novos (cStat 137) ou quando o limite é
+// excedido (656 — consumo indevido), uma nova consulta só pode ser feita após
+// 1 hora. Por isso:
+//   - o intervalo nunca é menor que 60 min, nem mesmo em "Buscar agora";
+//   - em 656, o monitor aguarda 1 h (mais tempo se o bloqueio se repetir);
+//   - se o 656 vier sem que ESTE monitor tenha consultado na última hora, outro
+//     sistema está consultando o CNPJ: o intervalo passa a ser no mínimo 2 h,
+//     com uma folga aleatória, para não disputar a mesma janela.
 func (m *Monitor) CapturarDistDFe(ctx context.Context, empresaID int64, forcar bool) (*ResultadoCaptura, error) {
 	n := m.Store.ObterNSU(empresaID, "NFE_DISTDFE")
 	res := &ResultadoCaptura{EmpresaID: empresaID, UltNSU: n.UltNSU, Proxima: n.ProximaConsulta}
-	if !forcar && n.ProximaConsulta != "" {
-		if t, err := time.Parse(time.RFC3339, n.ProximaConsulta); err == nil && time.Now().Before(t) {
-			res.Ignorado, res.Motivo = true, "aguardando intervalo mínimo da SEFAZ"
+	if t, err := time.Parse(time.RFC3339, n.ProximaConsulta); err == nil && time.Now().Before(t) {
+		// "Buscar agora" só antecipa a consulta quando a espera não é exigida pela SEFAZ.
+		if !forcar || n.UltimoCStat == 137 || n.UltimoCStat == 656 {
+			res.Ignorado = true
+			res.Motivo = "A SEFAZ só permite nova consulta deste CNPJ a partir de " + t.Format("02/01 15:04") +
+				" (regra de 1 hora; consultar antes gera bloqueio por consumo indevido)"
 			return res, nil
 		}
 	}
@@ -42,15 +56,44 @@ func (m *Monitor) CapturarDistDFe(ctx context.Context, empresaID int64, forcar b
 		return nil, err
 	}
 	intervalo := time.Duration(max(60, m.Cfg.IntervaloDistDFeMin)) * time.Minute
+	if n.Concorrente && intervalo < 120*time.Minute {
+		intervalo = 120 * time.Minute
+	}
+	folga := func() time.Duration {
+		if !n.Concorrente {
+			return 0
+		}
+		return time.Duration(rand.IntN(8)) * time.Minute
+	}
 	for i := 0; i < 20; i++ {
+		anterior := n.UltimaConsulta
+		n.UltimaConsulta = time.Now().Format(time.RFC3339)
 		r, err := cli.DistDFePorNSU(ctx, fiscal.CodigoPorUF[emp.UF], emp.CNPJ, n.UltNSU)
 		if err != nil {
 			n.ProximaConsulta = time.Now().Add(15 * time.Minute).Format(time.RFC3339)
-			n.UltimoMotivo = err.Error()
+			n.UltimoCStat, n.UltimoMotivo = 0, err.Error()
 			m.Store.SalvarNSU(n)
 			return nil, err
 		}
 		n.UltimoCStat, n.UltimoMotivo, res.CStat, res.Motivo = r.CStat, r.XMotivo, r.CStat, r.XMotivo
+		if r.CStat == 656 {
+			n.Bloqueios++
+			t, errT := time.Parse(time.RFC3339, anterior)
+			if i == 0 && (errT != nil || time.Since(t) >= 59*time.Minute) {
+				n.Concorrente = true
+			}
+			espera := time.Duration(min(n.Bloqueios, 3)) * 61 * time.Minute
+			if n.Concorrente && espera < 120*time.Minute {
+				espera = 120 * time.Minute
+			}
+			n.ProximaConsulta = time.Now().Add(espera + folga()).Format(time.RFC3339)
+			res.Motivo = r.XMotivo + " — nova tentativa automática em " + time.Now().Add(espera).Format("15:04")
+			if n.Concorrente {
+				res.Motivo += ". Outro sistema está consultando este CNPJ na SEFAZ (ex.: outro monitor de notas); o intervalo foi ampliado para evitar novos bloqueios"
+			}
+			break
+		}
+		n.Bloqueios = 0
 		if r.UltNSU != "" {
 			n.UltNSU = r.UltNSU
 		}
@@ -71,9 +114,16 @@ func (m *Monitor) CapturarDistDFe(ctx context.Context, empresaID int64, forcar b
 				}
 			}
 		}
-		if r.CStat == 137 || r.CStat == 656 || n.UltNSU == n.MaxNSU || r.CStat != 138 {
-			n.ProximaConsulta = time.Now().Add(intervalo).Format(time.RFC3339)
+		if r.CStat != 138 || n.UltNSU == n.MaxNSU {
+			n.ProximaConsulta = time.Now().Add(intervalo + folga()).Format(time.RFC3339)
 			break
+		}
+		// cStat 138 com mais documentos: segue no mesmo ciclo, com pausa curta.
+		n.ProximaConsulta = ""
+		select {
+		case <-ctx.Done():
+			i = 20
+		case <-time.After(2 * time.Second):
 		}
 	}
 	m.Store.SalvarNSU(n)

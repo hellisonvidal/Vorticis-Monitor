@@ -4,9 +4,12 @@ package sefaz
 
 import (
 	"bytes"
+	"crypto"
 	"crypto/rsa"
+	"crypto/sha1"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"regexp"
@@ -18,15 +21,21 @@ import (
 
 // Certificado é um e-CNPJ/e-CPF A1 carregado em memória.
 type Certificado struct {
-	TLS      tls.Certificate
-	Leaf     *x509.Certificate
-	Chave    *rsa.PrivateKey
-	CNPJ     string
-	Titular  string
-	Emissor  string
-	Serial   string
-	ValidoDe time.Time
-	Validade time.Time
+	TLS  tls.Certificate
+	Leaf *x509.Certificate
+	// Assinador é a chave privada: *rsa.PrivateKey (arquivo .pfx) ou a chave
+	// guardada no repositório do Windows (assinatura feita pelo próprio Windows).
+	Assinador crypto.Signer
+	// Origem: "ARQUIVO" ou "REPOSITORIO".
+	Origem string
+	// Impressao é a impressão digital SHA-1 (thumbprint) do certificado.
+	Impressao string
+	CNPJ      string
+	Titular   string
+	Emissor   string
+	Serial    string
+	ValidoDe  time.Time
+	Validade  time.Time
 }
 
 // oidCNPJ é o OtherName ICP-Brasil (2.16.76.1.3.3) que contém o CNPJ.
@@ -47,13 +56,33 @@ func CarregarPFX(pfx []byte, senha string) (*Certificado, error) {
 	for _, c := range cas {
 		chain = append(chain, c.Raw)
 	}
-	c := &Certificado{
-		TLS:  tls.Certificate{Certificate: chain, PrivateKey: rk, Leaf: leaf},
-		Leaf: leaf, Chave: rk, Titular: leaf.Subject.CommonName, Emissor: leaf.Issuer.CommonName,
+	return montarCertificado(leaf, chain, rk, "ARQUIVO"), nil
+}
+
+func montarCertificado(leaf *x509.Certificate, chain [][]byte, chave crypto.Signer, origem string) *Certificado {
+	return &Certificado{
+		TLS:  tls.Certificate{Certificate: chain, PrivateKey: chave, Leaf: leaf},
+		Leaf: leaf, Assinador: chave, Origem: origem, Impressao: Impressao(leaf.Raw),
+		Titular: leaf.Subject.CommonName, Emissor: leaf.Issuer.CommonName, CNPJ: extrairCNPJ(leaf),
 		Serial: leaf.SerialNumber.Text(16), ValidoDe: leaf.NotBefore, Validade: leaf.NotAfter,
 	}
-	c.CNPJ = extrairCNPJ(leaf)
-	return c, nil
+}
+
+// Impressao devolve o thumbprint SHA-1 (hexadecimal maiúsculo) do certificado DER.
+func Impressao(der []byte) string {
+	h := sha1.Sum(der)
+	return strings.ToUpper(hex.EncodeToString(h[:]))
+}
+
+// CertRepositorio descreve um certificado instalado no Windows (Pessoal do usuário).
+type CertRepositorio struct {
+	Impressao string    `json:"impressao"`
+	Titular   string    `json:"titular"`
+	CNPJ      string    `json:"cnpj"`
+	Emissor   string    `json:"emissor"`
+	ValidoDe  time.Time `json:"valido_de"`
+	Validade  time.Time `json:"valido_ate"`
+	Valido    bool      `json:"valido"`
 }
 
 func extrairCNPJ(c *x509.Certificate) string {

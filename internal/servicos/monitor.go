@@ -73,7 +73,12 @@ func (m *Monitor) ClienteSefaz(empresaID int64) (*sefaz.Cliente, *store.Empresa,
 	if err != nil {
 		return nil, emp, err
 	}
-	cert, err := sefaz.CarregarPFX(pfx, string(senha))
+	var cert *sefaz.Certificado
+	if ct.Tipo == "REPOSITORIO" { // certificado instalado no Windows (pfx guarda o thumbprint)
+		cert, err = sefaz.CarregarRepositorio(string(pfx))
+	} else {
+		cert, err = sefaz.CarregarPFX(pfx, string(senha))
+	}
 	if err != nil {
 		return nil, emp, err
 	}

@@ -3,7 +3,6 @@ package sefaz
 import (
 	"crypto"
 	"crypto/rand"
-	"crypto/rsa"
 	"crypto/sha1"
 	"encoding/base64"
 	"strings"
@@ -31,7 +30,7 @@ func AssinarXMLDSig(elementoCanonico, id string, cert *Certificado) (string, err
 		`</Transforms><DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"></DigestMethod>` +
 		`<DigestValue>` + digest + `</DigestValue></Reference></SignedInfo>`
 	h := sha1.Sum([]byte(signedInfo))
-	sig, err := rsa.SignPKCS1v15(rand.Reader, cert.Chave, crypto.SHA1, h[:])
+	sig, err := cert.Assinador.Sign(rand.Reader, h[:], crypto.SHA1)
 	if err != nil {
 		return "", err
 	}

@@ -86,3 +86,32 @@ input[type=checkbox]{width:16px;height:16px;accent-color:var(--pri);cursor:point
 pre{white-space:pre-wrap;word-break:break-all;font-size:12px}
 label.btn{flex-direction:row;font-size:14px;color:var(--tx)}
 .selecao #sel-qtd{white-space:nowrap}
+/* seletor Emitidos | Recebidos | Todos */
+.seg{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap}
+.seg button{flex:1;min-width:170px;display:flex;align-items:center;gap:12px;padding:14px 18px;border-radius:14px;border:1.5px solid var(--bd);background:var(--card);color:var(--mut);font:inherit;font-size:15px;cursor:pointer;transition:.15s;text-align:left}
+.seg button svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.seg button span{flex:1;font-weight:600}
+.seg button b{font-size:20px;color:var(--tx)}
+.seg button:hover{border-color:var(--pri)}
+.seg button.on{color:#fff;border-color:transparent;box-shadow:0 8px 24px #0d749033}
+.seg button.on b{color:#fff}
+.seg button.on.d-S{background:linear-gradient(135deg,#0d7490,#0891b2)}
+.seg button.on.d-E{background:linear-gradient(135deg,#047857,#10b981)}
+.seg button.on.d-T{background:linear-gradient(135deg,#334155,#64748b)}
+#view.carregando{opacity:.55;pointer-events:none;transition:opacity .15s}
+/* certificados instalados */
+.certs{display:flex;flex-direction:column;gap:8px;max-height:300px;overflow:auto}
+.cert-item{display:flex!important;flex-direction:row!important;gap:12px;align-items:flex-start;padding:10px 12px;border:1px solid var(--bd);border-radius:12px;cursor:pointer}
+.cert-item:has(input:checked){border-color:var(--pri);background:var(--pri-s)}
+.cert-item.off{opacity:.55;cursor:not-allowed}
+.cert-item input{width:auto;margin-top:3px}
+/* relatórios */
+.rel{display:grid;grid-template-columns:280px 1fr;gap:16px;align-items:start}
+.rel-lista{display:flex;flex-direction:column;gap:8px}
+.rel-lista a{display:flex;flex-direction:column;gap:3px;padding:12px 14px;border-radius:12px;border:1px solid var(--bd);background:var(--card);cursor:pointer;color:var(--tx)}
+.rel-lista a span{font-size:12px;color:var(--mut)}
+.rel-lista a.on{border-color:var(--pri);background:var(--pri-s);box-shadow:inset 3px 0 0 var(--pri)}
+.rel-prev{min-width:0}
+tr.total td{font-weight:700;background:var(--pri-s)}
+@media(max-width:900px){.rel{grid-template-columns:1fr}}
+.rel-prev td{white-space:nowrap;font-size:12.5px;padding-top:8px;padding-bottom:8px}

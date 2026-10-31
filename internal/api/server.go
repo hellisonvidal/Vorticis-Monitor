@@ -4,6 +4,8 @@ package api
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/csv"
 	"encoding/json"
 	"errors"
@@ -23,7 +25,7 @@ import (
 	"vorticis.com.br/monitor/internal/store"
 )
 
-const Versao = "1.0.0"
+const Versao = "1.1.0"
 
 type Server struct {
 	M      *servicos.Monitor
@@ -61,6 +63,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/documentos/exportar", auth(s.exportar))
 	mux.HandleFunc("GET /api/v1/cadastro/cnpj/{cnpj}", auth(s.consultarCNPJ))
 	mux.HandleFunc("POST /api/v1/cadastro/certificado", admin(s.consultarPorCertificado))
+	mux.HandleFunc("GET /api/v1/relatorios", auth(func(w http.ResponseWriter, r *http.Request) { jsonOK(w, relatorios.Catalogo) }))
+	mux.HandleFunc("GET /api/v1/relatorios/{id}", auth(s.relatorio))
+	mux.HandleFunc("GET /api/v1/certificados/instalados", admin(s.certificadosInstalados))
 	mux.HandleFunc("GET /api/v1/documentos/{chave}/ocorrencias", auth(s.ocorrencias))
 	mux.HandleFunc("GET /api/v1/documentos/{chave}/eventos", auth(s.eventos))
 	mux.HandleFunc("GET /api/v1/documentos/{chave}/correcoes", auth(s.correcoes))
@@ -98,7 +103,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/v1/config", admin(s.salvarConfig))
 
 	if s.Static != nil {
-		mux.Handle("GET /", http.FileServerFS(s.Static))
+		arquivos := http.FileServerFS(s.Static)
+		// Sem cache: a janela do programa (WebView2) guarda cache entre versões e
+		// poderia combinar a tela nova com scripts antigos.
+		mux.Handle("GET /", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Cache-Control", "no-store")
+			arquivos.ServeHTTP(w, r)
+		}))
 	}
 	return seguranca(mux)
 }
@@ -302,19 +313,7 @@ func (s *Server) enviarCertificado(w http.ResponseWriter, r *http.Request) {
 		erro(w, 404, "empresa não encontrada")
 		return
 	}
-	if err := r.ParseMultipartForm(10 << 20); err != nil {
-		erro(w, 400, "envie multipart/form-data com os campos 'arquivo' (.pfx) e 'senha'")
-		return
-	}
-	f, _, err := r.FormFile("arquivo")
-	if err != nil {
-		erro(w, 400, "arquivo .pfx/.p12 não enviado")
-		return
-	}
-	defer f.Close()
-	pfx, _ := io.ReadAll(io.LimitReader(f, 10<<20))
-	senha := r.FormValue("senha")
-	cert, err := sefaz.CarregarPFX(pfx, senha)
+	cert, pfx, senha, tipo, err := lerCertificado(r)
 	if err != nil {
 		erro(w, 400, err.Error())
 		return
@@ -333,7 +332,7 @@ func (s *Server) enviarCertificado(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sc, _ := s.M.Cofre.Cifrar([]byte(senha))
-	c := &store.Certificado{EmpresaID: id, Tipo: "A1", Titular: cert.Titular, CNPJ: cert.CNPJ, Serial: cert.Serial, Emissor: cert.Emissor,
+	c := &store.Certificado{EmpresaID: id, Tipo: tipo, Titular: cert.Titular, CNPJ: cert.CNPJ, Serial: cert.Serial, Emissor: cert.Emissor,
 		ValidoDe: cert.ValidoDe.Format(time.RFC3339), ValidoAte: cert.Validade.Format(time.RFC3339), PFX: pc, Senha: sc}
 	if err := s.M.Store.SalvarCertificado(c); err != nil {
 		erro(w, 500, err.Error())
@@ -360,6 +359,115 @@ func (s *Server) removerCertificado(w http.ResponseWriter, r *http.Request) {
 	s.M.InvalidarCliente(id)
 	s.M.Store.Auditar(usuario(r), "CERTIFICADO_REMOVIDO", "empresa", strconv.FormatInt(id, 10), "")
 	jsonOK(w, map[string]bool{"ok": true})
+}
+
+// lerCertificado obtém o certificado do pedido: arquivo .pfx (campos "arquivo" e
+// "senha") ou certificado instalado no Windows (campo "impressao" = thumbprint).
+// Instalado com chave exportável → vira .pfx no cofre (tipo A1); caso contrário
+// fica no Windows e o cofre guarda só o thumbprint (tipo REPOSITORIO).
+func lerCertificado(r *http.Request) (cert *sefaz.Certificado, pfx []byte, senha, tipo string, err error) {
+	if e := r.ParseMultipartForm(10 << 20); e != nil {
+		r.ParseForm()
+	}
+	if imp := strings.TrimSpace(r.FormValue("impressao")); imp != "" {
+		senha = gerarSenha()
+		if pfx, err = sefaz.ExportarRepositorio(imp, senha); err == nil {
+			if cert, err = sefaz.CarregarPFX(pfx, senha); err == nil {
+				return cert, pfx, senha, "A1", nil
+			}
+		}
+		if cert, err = sefaz.CarregarRepositorio(imp); err != nil {
+			return nil, nil, "", "", err
+		}
+		return cert, []byte(cert.Impressao), "", "REPOSITORIO", nil
+	}
+	f, _, e := r.FormFile("arquivo")
+	if e != nil {
+		return nil, nil, "", "", errors.New("escolha um certificado instalado no Windows ou envie o arquivo .pfx/.p12 com a senha")
+	}
+	defer f.Close()
+	pfx, _ = io.ReadAll(io.LimitReader(f, 10<<20))
+	senha = r.FormValue("senha")
+	cert, err = sefaz.CarregarPFX(pfx, senha)
+	return cert, pfx, senha, "A1", err
+}
+
+func gerarSenha() string {
+	b := make([]byte, 18)
+	rand.Read(b)
+	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+func (s *Server) certificadosInstalados(w http.ResponseWriter, r *http.Request) {
+	l, err := sefaz.ListarRepositorio()
+	if err != nil {
+		erro(w, 400, err.Error())
+		return
+	}
+	jsonOK(w, l)
+}
+
+// relatorio gera um relatório do período (?formato=json|pdf|xlsx|xls|csv).
+func (s *Server) relatorio(w http.ResponseWriter, r *http.Request) {
+	f := filtro(r)
+	f.Todos = true
+	id := r.PathValue("id")
+	if id == "manifestacao" {
+		f.Direcao, f.Modelo = "E", "NFE"
+	}
+	docs, _, err := s.M.Store.ListarDocumentos(f)
+	if err != nil {
+		erro(w, 500, err.Error())
+		return
+	}
+	data := func(iso string) string {
+		if t, err := time.Parse("2006-01-02", iso); err == nil {
+			return t.Format("02/01/2006")
+		}
+		return "…"
+	}
+	partes := []string{"Período: " + data(f.De) + " a " + data(f.Ate)}
+	if f.EmpresaID > 0 {
+		if e, err := s.M.Store.ObterEmpresa(f.EmpresaID); err == nil {
+			partes = append(partes, "Empresa: "+e.RazaoSocial+" ("+relatorios.FormatarDoc(e.CNPJ)+")")
+		}
+	} else {
+		partes = append(partes, "Todas as empresas")
+	}
+	if f.Direcao != "" && id != "manifestacao" {
+		partes = append(partes, map[string]string{"S": "Emitidos", "E": "Recebidos"}[f.Direcao])
+	}
+	if f.Modelo != "" && id != "manifestacao" {
+		partes = append(partes, "Modelo: "+strings.ReplaceAll(f.Modelo, ",", ", "))
+	}
+	if f.Status != "" {
+		partes = append(partes, "Situação: "+strings.ReplaceAll(f.Status, ",", ", "))
+	}
+	itens := func(id int64) []store.Item { l, _ := s.M.Store.Itens(id); return l }
+	rel, err := relatorios.Gerar(id, docs, itens, strings.Join(partes, " · "))
+	if err != nil {
+		erro(w, 404, err.Error())
+		return
+	}
+	formato := r.URL.Query().Get("formato")
+	if formato == "" || formato == "json" {
+		jsonOK(w, rel)
+		return
+	}
+	ct, ok := relatorios.Formatos[formato]
+	if !ok {
+		erro(w, 400, "formato inválido: use pdf, xlsx, xls ou csv")
+		return
+	}
+	var buf bytes.Buffer
+	if err := rel.Escrever(&buf, formato); err != nil {
+		erro(w, 400, err.Error())
+		return
+	}
+	nome := fmt.Sprintf("%s_%s_a_%s.%s", id, f.De, f.Ate, formato)
+	w.Header().Set("Content-Type", ct)
+	w.Header().Set("Content-Disposition", `attachment; filename="`+nome+`"`)
+	w.Write(buf.Bytes())
 }
 
 // ---------- documentos ----------
@@ -830,18 +938,7 @@ func (s *Server) consultarCNPJ(w http.ResponseWriter, r *http.Request) {
 // consultarPorCertificado lê o certificado A1 (multipart: arquivo, senha), identifica o
 // CNPJ e consulta Receita + SEFAZ da UF. O certificado não é gravado aqui.
 func (s *Server) consultarPorCertificado(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseMultipartForm(10 << 20); err != nil {
-		erro(w, 400, "envie o arquivo .pfx e a senha")
-		return
-	}
-	f, _, err := r.FormFile("arquivo")
-	if err != nil {
-		erro(w, 400, "arquivo .pfx/.p12 não enviado")
-		return
-	}
-	defer f.Close()
-	pfx, _ := io.ReadAll(io.LimitReader(f, 10<<20))
-	cert, err := sefaz.CarregarPFX(pfx, r.FormValue("senha"))
+	cert, _, _, _, err := lerCertificado(r)
 	if err != nil {
 		erro(w, 400, err.Error())
 		return
