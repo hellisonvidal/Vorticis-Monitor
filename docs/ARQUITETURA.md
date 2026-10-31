@@ -246,8 +246,8 @@ curl -X POST http://localhost:8765/api/v1/validacao/pre-emissao -H "X-API-Key: $
 - Pasta monitorada `C:\ProgramData\Vorticis\Monitor\importar`: o ERP grava XMLs e o monitor importa (move para `processados`/`erros`).
 
 ### 5.2 Execução via página de internet (modo servidor)
-- Mesmo binário. Opção do instalador "Acesso pela rede" (`host: 0.0.0.0` + firewall), ou Linux/Docker (`deploy/`).
-- TLS nativo (`tls_cert`/`tls_key`) ou proxy reverso (nginx, exemplo em `deploy/nginx.conf`, com `proxy_buffering off` para SSE).
+- Mesmo executável Windows. Opção do instalador "Acesso pela rede" (`host: 0.0.0.0` + firewall).
+- TLS nativo (`tls_cert`/`tls_key`) ou proxy reverso (IIS/ARR, desativando o buffer de resposta em `/api/v1/eventos/stream` para o tempo real/SSE).
 - Multiempresa: várias empresas/certificados no mesmo banco; perfis de usuário. Para SaaS multi-tenant, recomenda-se PostgreSQL e um `tenant_id` nas tabelas.
 
 ### 5.3 Adaptação a sistema de escrituração fiscal

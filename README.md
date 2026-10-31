@@ -1,6 +1,6 @@
 # Vorticis Monitor
 
-Monitor fiscal em tempo real para **NF-e, NFC-e, CT-e, MDF-e, NFS-e (ABRASF e Padrão Nacional)** e pré-escrituração **SPED**. Um único executável (Go) que roda como **serviço do Windows**, como **servidor web** (Linux/Docker) e se integra a ERPs e sistemas de escrituração via API REST.
+Monitor fiscal em tempo real para **NF-e, NFC-e, CT-e, MDF-e, NFS-e (ABRASF e Padrão Nacional)** e pré-escrituração **SPED**. Um único executável (Go) que roda como **serviço do Windows**, como **servidor web** na rede/internet e se integra a ERPs e sistemas de escrituração via API REST.
 
 Arquitetura completa (ERD, motor de regras, máquina de estados, endpoints): [`docs/ARQUITETURA.md`](docs/ARQUITETURA.md).
 
@@ -27,18 +27,15 @@ Linha de comando: `VorticisMonitor.exe run | service install|uninstall|start|sto
 
 **Modo portátil** é ativado quando o nome do executável contém "portatil", quando existe o arquivo `vorticis.portatil` ao lado dele ou com `--portatil`. Nesse modo a chave que cifra o certificado fica na própria pasta (sem DPAPI), permitindo levá-la para outro computador — proteja a pasta.
 
-## Modo servidor web
-```bash
-docker compose -f deploy/docker-compose.yml up -d
-```
-ou `VORTICIS_HOST=0.0.0.0 ./vorticis-monitor-linux-amd64 run` (ver `deploy/` para systemd e nginx).
+## Acesso pela rede / internet
+Marque **"Acesso pela rede"** no instalador (escuta em `0.0.0.0` e libera a porta 8765 no firewall) e acesse `http://NOME-DO-SERVIDOR:8765`. Para HTTPS, informe `tls_cert` e `tls_key` em `C:\ProgramData\Vorticis\Monitor\config.json` (ou publique por um proxy reverso como o IIS).
 
 ## Compilar
 Requer Go 1.24+ e NSIS 3 (`apt install nsis`):
 ```bash
 ./build.sh
 ```
-Gera em `dist/`: `VorticisMonitor.exe`, `VorticisMonitor-Portatil-<versão>.zip`, `VorticisMonitor-Setup-<versão>.exe`, `vorticis-monitor-linux-amd64` e `SHA256SUMS.txt`.
+Gera em `dist/`: `VorticisMonitor.exe`, `VorticisMonitor-Portatil-<versão>.zip`, `VorticisMonitor-Setup-<versão>.exe` e `SHA256SUMS.txt`.
 
 ## Testes e amostras
 `go test ./...` · `python3 samples/gerar_amostras.py` gera XMLs fictícios (DIFAL correto, ST com erros, contingência SVC incorreta, devolução inválida, entrada para conciliação, NFS-e com retenções, CT-e).

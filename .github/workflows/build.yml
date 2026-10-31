@@ -38,7 +38,6 @@ jobs:
             dist/VorticisMonitor.exe
             dist/VorticisMonitor-Portatil-*.zip
             dist/VorticisMonitor-Setup-*.exe
-            dist/vorticis-monitor-linux-amd64
             dist/SHA256SUMS.txt
 
       - name: Publicar Release
@@ -51,7 +50,6 @@ jobs:
             - `VorticisMonitor-Setup-${{ env.VERSAO }}.exe` — instalador (serviço do Windows)
             - `VorticisMonitor.exe` — executável avulso (duplo clique abre o painel)
             - `VorticisMonitor-Portatil-${{ env.VERSAO }}.zip` — versão portátil (sem instalação)
-            - `vorticis-monitor-linux-amd64` — modo servidor web
             - `SHA256SUMS.txt` — hashes de integridade
 
             Após iniciar, acesse http://localhost:8765, crie o administrador, cadastre a empresa e inclua o certificado digital A1.
@@ -59,5 +57,4 @@ jobs:
             dist/VorticisMonitor.exe
             dist/VorticisMonitor-Portatil-*.zip
             dist/VorticisMonitor-Setup-*.exe
-            dist/vorticis-monitor-linux-amd64
             dist/SHA256SUMS.txt

@@ -3,7 +3,6 @@
 #   dist/VorticisMonitor.exe                     executável Windows (duplo clique abre o painel)
 #   dist/VorticisMonitor-Portatil-<v>.zip        versão portátil (sem instalação)
 #   dist/VorticisMonitor-Setup-<v>.exe           instalador (serviço do Windows)
-#   dist/vorticis-monitor-linux-amd64            modo servidor web
 set -euo pipefail
 cd "$(dirname "$0")"
 VERSAO="${VERSAO:-$(grep -oP 'Versao = "\K[^"]+' internal/api/server.go)}"
@@ -36,9 +35,6 @@ echo "== instalador"
 cp dist/VorticisMonitor.exe dist/vorticis-monitor.exe
 (cd installer && makensis -V2 -DVERSAO="$VERSAO" vorticis-monitor.nsi)
 rm dist/vorticis-monitor.exe
-
-echo "== linux/amd64 (modo servidor web)"
-GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o dist/vorticis-monitor-linux-amd64 ./cmd/vorticis-monitor
 
 (cd dist && sha256sum * > SHA256SUMS.txt)
 ls -lh dist
