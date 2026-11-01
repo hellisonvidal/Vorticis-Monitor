@@ -37,6 +37,14 @@ func Open(path string) (*Store, error) {
 		`ALTER TABLE nsu_controle ADD COLUMN ultima_consulta TEXT`,
 		`ALTER TABLE nsu_controle ADD COLUMN bloqueios INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE nsu_controle ADD COLUMN concorrente INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE empresa ADD COLUMN nfse_modo TEXT NOT NULL DEFAULT 'PROPRIO'`,
+		`ALTER TABLE empresa ADD COLUMN nfse_procurador_id INTEGER`,
+		`CREATE TABLE IF NOT EXISTS procurador (
+		  id INTEGER PRIMARY KEY AUTOINCREMENT,
+		  nome TEXT NOT NULL, documento TEXT, tipo TEXT NOT NULL DEFAULT 'A1',
+		  titular TEXT, emissor TEXT, valido_ate TEXT,
+		  pfx_cifrado BLOB NOT NULL, senha_cifrada BLOB NOT NULL,
+		  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
 	} {
 		db.Exec(m)
 	}
@@ -70,14 +78,19 @@ type Empresa struct {
 	CienciaAutomatica bool   `json:"ciencia_automatica"`
 	Ativo             bool   `json:"ativo"`
 	TemCertificado    bool   `json:"tem_certificado"`
+	// NFS-e Nacional (ADN): PROPRIO = certificado da empresa; PROCURACAO = certificado
+	// do procurador (contador) com procuração eletrônica da empresa.
+	NFSeModo         string `json:"nfse_modo"`
+	NFSeProcuradorID int64  `json:"nfse_procurador_id"`
 }
 
 const empCols = `id, cnpj, razao_social, uf, COALESCE(ie,''), COALESCE(cod_mun,''), regime, ambiente, captura_automatica, ciencia_automatica, ativo,
- EXISTS(SELECT 1 FROM certificado c WHERE c.empresa_id = empresa.id AND c.ativo = 1)`
+ EXISTS(SELECT 1 FROM certificado c WHERE c.empresa_id = empresa.id AND c.ativo = 1),
+ COALESCE(nfse_modo,'PROPRIO'), COALESCE(nfse_procurador_id,0)`
 
 func scanEmpresa(r interface{ Scan(...any) error }) (*Empresa, error) {
 	e := &Empresa{}
-	err := r.Scan(&e.ID, &e.CNPJ, &e.RazaoSocial, &e.UF, &e.IE, &e.CodMun, &e.Regime, &e.Ambiente, &e.CapturaAutomatica, &e.CienciaAutomatica, &e.Ativo, &e.TemCertificado)
+	err := r.Scan(&e.ID, &e.CNPJ, &e.RazaoSocial, &e.UF, &e.IE, &e.CodMun, &e.Regime, &e.Ambiente, &e.CapturaAutomatica, &e.CienciaAutomatica, &e.Ativo, &e.TemCertificado, &e.NFSeModo, &e.NFSeProcuradorID)
 	return e, err
 }
 
@@ -128,6 +141,76 @@ func (s *Store) SalvarEmpresa(e *Empresa) error {
 	}
 	_, err := s.DB.Exec(`UPDATE empresa SET razao_social=?, uf=?, ie=?, cod_mun=?, regime=?, ambiente=?, captura_automatica=?, ciencia_automatica=?, ativo=? WHERE id=?`,
 		e.RazaoSocial, strings.ToUpper(e.UF), e.IE, e.CodMun, e.Regime, e.Ambiente, e.CapturaAutomatica, e.CienciaAutomatica, e.Ativo, e.ID)
+	return err
+}
+
+// SalvarNFSeEmpresa grava como a empresa consulta a NFS-e Nacional.
+func (s *Store) SalvarNFSeEmpresa(id int64, modo string, procurador int64) error {
+	if modo != "PROCURACAO" {
+		modo, procurador = "PROPRIO", 0
+	}
+	var p any
+	if procurador > 0 {
+		p = procurador
+	}
+	_, err := s.DB.Exec(`UPDATE empresa SET nfse_modo = ?, nfse_procurador_id = ? WHERE id = ?`, modo, p, id)
+	return err
+}
+
+// ---------------- Procurador (certificado de terceiro com procuração) ----------------
+
+type Procurador struct {
+	ID        int64  `json:"id"`
+	Nome      string `json:"nome"`
+	Documento string `json:"documento"`
+	Tipo      string `json:"tipo"`
+	Titular   string `json:"titular"`
+	Emissor   string `json:"emissor"`
+	ValidoAte string `json:"valido_ate"`
+	Empresas  int    `json:"empresas"`
+	PFX       []byte `json:"-"`
+	Senha     []byte `json:"-"`
+}
+
+func (s *Store) SalvarProcurador(p *Procurador) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, err := s.DB.Exec(`INSERT INTO procurador (nome, documento, tipo, titular, emissor, valido_ate, pfx_cifrado, senha_cifrada) VALUES (?,?,?,?,?,?,?,?)`,
+		p.Nome, p.Documento, p.Tipo, p.Titular, p.Emissor, p.ValidoAte, p.PFX, p.Senha)
+	if err == nil {
+		p.ID, _ = r.LastInsertId()
+	}
+	return err
+}
+
+func (s *Store) ListarProcuradores() ([]*Procurador, error) {
+	rows, err := s.DB.Query(`SELECT id, nome, COALESCE(documento,''), tipo, COALESCE(titular,''), COALESCE(emissor,''), COALESCE(valido_ate,''),
+		(SELECT COUNT(*) FROM empresa e WHERE e.nfse_procurador_id = procurador.id AND e.nfse_modo = 'PROCURACAO') FROM procurador ORDER BY nome`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []*Procurador{}
+	for rows.Next() {
+		p := &Procurador{}
+		rows.Scan(&p.ID, &p.Nome, &p.Documento, &p.Tipo, &p.Titular, &p.Emissor, &p.ValidoAte, &p.Empresas)
+		out = append(out, p)
+	}
+	return out, nil
+}
+
+func (s *Store) ObterProcurador(id int64) (*Procurador, error) {
+	p := &Procurador{}
+	err := s.DB.QueryRow(`SELECT id, nome, COALESCE(documento,''), tipo, COALESCE(titular,''), COALESCE(emissor,''), COALESCE(valido_ate,''), pfx_cifrado, senha_cifrada FROM procurador WHERE id = ?`, id).
+		Scan(&p.ID, &p.Nome, &p.Documento, &p.Tipo, &p.Titular, &p.Emissor, &p.ValidoAte, &p.PFX, &p.Senha)
+	return p, err
+}
+
+func (s *Store) RemoverProcurador(id int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.DB.Exec(`UPDATE empresa SET nfse_modo = 'PROPRIO', nfse_procurador_id = NULL WHERE nfse_procurador_id = ?`, id)
+	_, err := s.DB.Exec(`DELETE FROM procurador WHERE id = ?`, id)
 	return err
 }
 

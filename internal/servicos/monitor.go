@@ -65,29 +65,76 @@ func (m *Monitor) ClienteSefaz(empresaID int64) (*sefaz.Cliente, *store.Empresa,
 	if cc := m.clientes[empresaID]; cc != nil && cc.certID == ct.ID && cc.c.Ambiente == emp.Ambiente {
 		return cc.c, emp, nil
 	}
-	pfx, err := m.Cofre.Decifrar(ct.PFX)
-	if err != nil {
-		return nil, emp, fmt.Errorf("falha ao abrir cofre do certificado: %w", err)
-	}
-	senha, err := m.Cofre.Decifrar(ct.Senha)
+	cert, err := m.AbrirCertificado(ct.Tipo, ct.PFX, ct.Senha)
 	if err != nil {
 		return nil, emp, err
 	}
+	c := sefaz.NovoCliente(cert, emp.Ambiente, m.Cfg.VerificarTLSSefaz, m.Cfg.CadeiaICPBrasil)
+	m.clientes[empresaID] = &clienteCache{certID: ct.ID, c: c}
+	return c, emp, nil
+}
+
+// AbrirCertificado decifra o certificado guardado no cofre (arquivo .pfx ou
+// referência a um certificado instalado no Windows) e confere a validade.
+func (m *Monitor) AbrirCertificado(tipo string, pfxCifrado, senhaCifrada []byte) (*sefaz.Certificado, error) {
+	pfx, err := m.Cofre.Decifrar(pfxCifrado)
+	if err != nil {
+		return nil, fmt.Errorf("falha ao abrir cofre do certificado: %w", err)
+	}
+	senha, err := m.Cofre.Decifrar(senhaCifrada)
+	if err != nil {
+		return nil, err
+	}
 	var cert *sefaz.Certificado
-	if ct.Tipo == "REPOSITORIO" { // certificado instalado no Windows (pfx guarda o thumbprint)
+	if tipo == "REPOSITORIO" { // certificado instalado no Windows (pfx guarda o thumbprint)
 		cert, err = sefaz.CarregarRepositorio(string(pfx))
 	} else {
 		cert, err = sefaz.CarregarPFX(pfx, string(senha))
 	}
 	if err != nil {
-		return nil, emp, err
+		return nil, err
 	}
 	if !cert.Valido() {
-		return nil, emp, fmt.Errorf("certificado digital vencido em %s", cert.Validade.Format("02/01/2006"))
+		return nil, fmt.Errorf("certificado digital de %s vencido em %s", cert.Titular, cert.Validade.Format("02/01/2006"))
+	}
+	return cert, nil
+}
+
+// ClienteNFSe devolve o cliente para a NFS-e Nacional conforme a empresa:
+// certificado próprio ou certificado do procurador (procuração eletrônica).
+func (m *Monitor) ClienteNFSe(empresaID int64) (*sefaz.Cliente, *store.Empresa, string, error) {
+	emp, err := m.Store.ObterEmpresa(empresaID)
+	if err != nil {
+		return nil, nil, "", fmt.Errorf("empresa %d não encontrada", empresaID)
+	}
+	if emp.NFSeModo != "PROCURACAO" {
+		c, e, err := m.ClienteSefaz(empresaID)
+		return c, e, "certificado da empresa", err
+	}
+	p, err := m.Store.ObterProcurador(emp.NFSeProcuradorID)
+	if err != nil {
+		return nil, emp, "", errors.New("a empresa está configurada para consultar NFS-e por procuração, mas nenhum procurador foi escolhido — ajuste em Empresas › Editar")
+	}
+	chave := -p.ID // procuradores ficam no cache com chave negativa
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if cc := m.clientes[chave]; cc != nil && cc.c.Ambiente == emp.Ambiente {
+		return cc.c, emp, "procuração de " + p.Nome, nil
+	}
+	cert, err := m.AbrirCertificado(p.Tipo, p.PFX, p.Senha)
+	if err != nil {
+		return nil, emp, "", fmt.Errorf("certificado do procurador %s: %w", p.Nome, err)
 	}
 	c := sefaz.NovoCliente(cert, emp.Ambiente, m.Cfg.VerificarTLSSefaz, m.Cfg.CadeiaICPBrasil)
-	m.clientes[empresaID] = &clienteCache{certID: ct.ID, c: c}
-	return c, emp, nil
+	m.clientes[chave] = &clienteCache{certID: p.ID, c: c}
+	return c, emp, "procuração de " + p.Nome, nil
+}
+
+// InvalidarProcurador descarta o cliente em cache do procurador.
+func (m *Monitor) InvalidarProcurador(id int64) {
+	m.mu.Lock()
+	delete(m.clientes, -id)
+	m.mu.Unlock()
 }
 
 // InvalidarCliente descarta o cliente em cache (troca de certificado/ambiente).

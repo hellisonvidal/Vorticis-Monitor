@@ -137,3 +137,18 @@ tr.total td{font-weight:700;background:var(--pri-s)}
 .nav-lista a.on{background:var(--pri);color:#fff}
 @media(max-width:640px){.nav-corpo{grid-template-columns:1fr;height:auto}}
 #nv-sel{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;font-size:12px}#modal-body .acoes:has(#nv-ok){flex-wrap:nowrap;align-items:center}
+/* relatórios enquadrados na janela: rolagem só dentro da tabela */
+.filtros.compacto{padding:10px 14px;gap:8px;margin-bottom:10px}
+.filtros.compacto label{font-size:12px}
+.filtros.compacto input,.filtros.compacto select{padding-top:6px;padding-bottom:6px}
+.filtros.compacto input[type=date]{width:138px}
+.filtros.compacto .presets button{padding:4px 9px;font-size:12px}
+.rel-tipos{margin-bottom:10px}
+.rel-prev{padding:14px 16px}
+.rel-prev .tbl{overflow:auto;margin-top:10px!important}
+.rel-prev table{font-size:12px}
+.rel-prev th{position:sticky;top:0;z-index:1;background:var(--card);box-shadow:0 1px 0 var(--bd);padding:7px 8px}
+.rel-prev td{white-space:normal;font-size:12px;padding:5px 8px;line-height:1.3}
+.rel-prev td.n{white-space:nowrap}
+.rel-prev tr.total td{position:sticky;bottom:0;z-index:1}
+.rel-prev h3{font-size:15px}

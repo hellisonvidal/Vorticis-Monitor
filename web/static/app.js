@@ -202,8 +202,8 @@ const PRESETS = {
   ano: () => [iso(new Date(hoje.getFullYear(), 0, 1)), iso(hoje)],
 };
 const ROT_PRESET = { hoje: "Hoje", d7: "7 dias", d30: "30 dias", mes: "Este mês", mesant: "Mês anterior", ano: "Este ano" };
-function filtroHTML(extras = "") {
-  return `<div class="filtros">
+function filtroHTML(extras = "", compacto) {
+  return `<div class="filtros${compacto ? " compacto" : ""}">
     <label>De<input type="date" id="f-de" value="${estado.de}"></label>
     <label>Até<input type="date" id="f-ate" value="${estado.ate}"></label>
     <div class="presets">${Object.keys(PRESETS).map(k => `<button type="button" data-p="${k}" class="${estado.preset === k ? "on" : ""}">${ROT_PRESET[k]}</button>`).join("")}</div>
@@ -318,7 +318,7 @@ async function consultaDocs(el, fixo, opts = {}) {
   estado.total = d.total;
   const recebidos = estado.direcao === "E", emitidos = estado.direcao === "S";
   const gopts = { manif: recebidos && opts.manif, parte: recebidos ? opts.parteE || "Emitente" : emitidos ? opts.parteS || "Destinatário" : undefined };
-  const antes = recebidos && opts.antesRecebidos ? await opts.antesRecebidos() : "";
+  const antes = opts.antesSempre ? await opts.antesSempre() : recebidos && opts.antesRecebidos ? await opts.antesRecebidos() : "";
   const pags = Math.max(1, Math.ceil(d.total / 50));
   el.innerHTML = seg + antes + filtroHTML(extras) + `
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><span class="muted">${d.total} documento(s) entre ${dia(estado.de + "T12:00")} e ${dia(estado.ate + "T12:00")}</span>
@@ -334,7 +334,30 @@ async function consultaDocs(el, fixo, opts = {}) {
   if (sf) sf.onclick = async () => { q.set("por_pagina", 5000); q.set("pagina", 1); const all = await api("/documentos?" + q); all.itens.forEach(x => estado.sel.add(x.chave)); mostrar(estado.view, true); };
 }
 VIEWS.nfe = el => consultaDocs(el, { modelo: "NFE,NFCE" }, { modelos: ["NFE", "NFCE"], rotulos: ["Emitidas", "Recebidas"], manif: true, antesRecebidos: cardsCaptura });
-VIEWS.servicos = el => consultaDocs(el, { modelo: "NFSE" }, { rotulos: ["Prestadas (emitidas)", "Tomadas (recebidas)"], parteS: "Tomador", parteE: "Prestador" });
+VIEWS.servicos = el => consultaDocs(el, { modelo: "NFSE" }, { rotulos: ["Prestadas (emitidas)", "Tomadas (recebidas)"], parteS: "Tomador", parteE: "Prestador", antesSempre: cardsNFSe });
+
+// Busca de NFS-e no Ambiente de Dados Nacional (ADN), por empresa: certificado próprio ou procuração.
+async function cardsNFSe() {
+  const [nsu, procs] = await Promise.all([api("/captura/status").catch(() => []), api("/procuradores").catch(() => [])]);
+  const emps = estado.empresas.filter(e => !estado.empresa || String(e.id) === estado.empresa);
+  if (!emps.length) return "";
+  return `<div class="grid g2" style="margin-bottom:16px">${emps.map(e => {
+    const n = nsu.find(x => x.empresa_id === e.id && x.servico === "NFSE_ADN") || {};
+    const pr = e.nfse_modo === "PROCURACAO" ? procs.find(p => p.id === e.nfse_procurador_id) : null;
+    const pode = pr || e.tem_certificado;
+    const via = pr ? `Procuração eletrônica · certificado de <b>${esc(pr.nome)}</b>` : e.nfse_modo === "PROCURACAO" ? `<span style="color:var(--er)">Procuração sem procurador escolhido</span>` : e.tem_certificado ? "Certificado da própria empresa" : "Sem certificado — inclua o certificado ou use procuração do contador";
+    return `<div class="card" style="display:flex;gap:14px;align-items:center">
+      <div class="kpi"><div class="ic ${!pode ? "c-wa" : [401, 403].includes(n.ultimo_c_stat) ? "c-er" : "c-pr"}">${svg(pr ? "chave" : "servico")}</div></div>
+      <div style="flex:1"><b>${esc(e.razao_social)}</b><div class="doc-sub">NFS-e Nacional (ADN) · ${via}<br>Última consulta: ${dt(n.ultima_consulta) || "ainda não realizada"}${n.proxima_consulta ? ` · próxima: ${dt(n.proxima_consulta)}` : ""}${n.ultimo_motivo ? `<br>${esc(n.ultimo_motivo)}` : ""}</div></div>
+      ${pode ? `<button class="btn sm" onclick="capturarNFSe(${e.id}, this)">Buscar agora</button>` : `<button class="btn sm" onclick='editarEmpresa(${JSON.stringify(e).replace(/'/g, "&#39;")})'>Configurar</button>`}</div>`;
+  }).join("")}</div>`;
+}
+async function capturarNFSe(id, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = "Consultando ADN…"; }
+  try { const r = await api(`/captura/${id}/nfse?forcar=1`, { method: "POST" }); toast(esc(r.motivo), r.ignorado || r.c_stat >= 400 ? "var(--wa)" : "var(--ok)"); }
+  catch (e) { toast(esc(e.message), "var(--er)"); }
+  mostrar(estado.view, true);
+}
 VIEWS.transporte = el => consultaDocs(el, { modelo: "CTE,MDFE" }, { modelos: ["CTE", "MDFE"] });
 VIEWS.documentos = el => consultaDocs(el, {}, { modelos: ["NFE", "NFCE", "CTE", "MDFE", "NFSE"] });
 
@@ -380,7 +403,7 @@ VIEWS.relatorios = async el => {
   const fmtCel = (v, t) => t === "M" ? brl(v) : t === "D" ? dia(v) : esc(v);
   const lim = rel.linhas.slice(0, 300);
   const selec = new Set(resp.selecionadas);
-  el.innerHTML = filtroHTML(extras) + `<div class="rel-tipos">${cat.map(c => `<a data-r="${c.id}" class="${estado.rel === c.id ? "on" : ""}" title="${esc(c.descricao)}">${esc(c.nome)}</a>`).join("")}</div>
+  el.innerHTML = filtroHTML(extras, true) + `<div class="rel-tipos">${cat.map(c => `<a data-r="${c.id}" class="${estado.rel === c.id ? "on" : ""}" title="${esc(c.descricao)}">${esc(c.nome)}</a>`).join("")}</div>
     <div class="card rel-prev"><div class="rel-topo">
       <div><h3 style="margin:0">${esc(rel.titulo)}</h3><div class="doc-sub">${esc(rel.filtros)} · ${rel.linhas.length} linha(s) · ${rel.colunas.length} de ${resp.disponiveis.length} campos</div></div>
       <div class="acoes" style="margin:0"><div class="campos-wrap"><button class="btn sm" id="bt-campos">${svg("config")} Campos</button>
@@ -392,6 +415,8 @@ VIEWS.relatorios = async el => {
       ${lim.map(l => `<tr>${l.map((v, i) => `<td class="${"MN".includes(rel.colunas[i].tipo) ? "n" : ""}">${fmtCel(v, rel.colunas[i].tipo)}</td>`).join("")}</tr>`).join("") || `<tr><td colspan="${rel.colunas.length}" class="muted">Nenhum registro no período e filtros informados.</td></tr>`}
       ${rel.total ? `<tr class="total">${rel.total.map((v, i) => `<td class="${"MN".includes(rel.colunas[i].tipo) ? "n" : ""}">${fmtCel(v, rel.colunas[i].tipo)}</td>`).join("")}</tr>` : ""}</tbody></table></div>
       ${rel.linhas.length > lim.length ? `<p class="muted">Pré-visualização das primeiras ${lim.length} linhas — o arquivo exportado contém todas.</p>` : ""}</div>`;
+  const ajustar = () => { const t = $(".rel-prev .tbl", el); if (!t || !t.isConnected) { window.removeEventListener("resize", ajustar); return; } t.style.maxHeight = Math.max(220, window.innerHeight - t.getBoundingClientRect().top - (rel.linhas.length > lim.length ? 48 : 22)) + "px"; };
+  ajustar(); window.addEventListener("resize", ajustar);
   const cx = $("#campos", el);
   $("#bt-campos", el).onclick = e => { e.stopPropagation(); cx.classList.toggle("hidden"); };
   cx.onclick = e => e.stopPropagation();
@@ -541,13 +566,18 @@ function formEmpresa(el, d, cert, existente) {
     <label>Inscrição Estadual ${ies.length ? `<select id="ie-sel"><option value="">Digitar…</option>${ies.map(i => `<option value="${esc(i.ie)}" ${i.ie === d.ie ? "selected" : ""}>${esc(i.ie)} · ${esc(i.uf)} · ${i.ativa ? "ativa" : "inativa"} (${esc(i.fonte)})</option>`).join("")}</select>` : ""}<input name="ie" value="${esc(d.ie || "")}" placeholder="ou ISENTO"></label>
     <label>Regime tributário<select name="regime">${[["LR", "Lucro Real"], ["LP", "Lucro Presumido"], ["SN", "Simples Nacional"], ["MEI", "MEI"]].map(([k, l]) => `<option value="${k}" ${(d.regime || d.regime_sugerido) === k ? "selected" : ""}>${l}</option>`).join("")}</select></label>
     <label>Ambiente SEFAZ<select name="ambiente"><option value="1" ${d.ambiente !== 2 ? "selected" : ""}>Produção</option><option value="2" ${d.ambiente === 2 ? "selected" : ""}>Homologação</option></select></label>
+    <label>Consulta de NFS-e Nacional<select name="nfse_modo" id="nfse-modo"><option value="PROPRIO">Certificado da própria empresa</option><option value="PROCURACAO" ${d.nfse_modo === "PROCURACAO" ? "selected" : ""}>Procuração eletrônica (certificado do contador)</option></select></label>
+    <label id="nfse-proc-l" class="${d.nfse_modo === "PROCURACAO" ? "" : "hidden"}">Procurador<select name="nfse_procurador_id" id="nfse-proc"><option value="">Carregando…</option></select></label>
     <label>Buscar notas recebidas automaticamente<select name="captura_automatica"><option value="1">Sim</option><option value="" ${existente && !d.captura_automatica ? "selected" : ""}>Não</option></select></label>
   </div>${d.endereco || d.logradouro ? `<div class="doc-sub">${esc([d.logradouro, d.numero, d.bairro, d.municipio, d.uf, d.cep].filter(Boolean).join(", "))}</div>` : ""}
   <div class="acoes"><button class="btn primary">${existente ? "Salvar alterações" : "Cadastrar empresa"}</button><button type="button" class="btn" onclick="fecharModal()">Cancelar</button></div></form>`;
   const sel = $("#ie-sel"); if (sel) sel.onchange = () => { if (sel.value) $("#fe [name=ie]").value = sel.value; };
+  $("#nfse-modo").onchange = () => $("#nfse-proc-l").classList.toggle("hidden", $("#nfse-modo").value !== "PROCURACAO");
+  api("/procuradores").then(ps => { $("#nfse-proc").innerHTML = ps.length ? ps.map(p => `<option value="${p.id}" ${p.id === d.nfse_procurador_id ? "selected" : ""}>${esc(p.nome)} (${docFmt(p.documento)})</option>`).join("")
+    : `<option value="">Nenhum procurador — cadastre em Configurações › Procuradores</option>`; }).catch(() => { });
   $("#fe").onsubmit = async ev => {
     ev.preventDefault(); const f = Object.fromEntries(new FormData(ev.target));
-    const corpo = { ...f, ambiente: +f.ambiente, captura_automatica: !!f.captura_automatica, ciencia_automatica: !!existente?.ciencia_automatica, ativo: true, uf: f.uf.toUpperCase() };
+    const corpo = { ...f, nfse_procurador_id: +f.nfse_procurador_id || 0, ambiente: +f.ambiente, captura_automatica: !!f.captura_automatica, ciencia_automatica: !!existente?.ciencia_automatica, ativo: true, uf: f.uf.toUpperCase() };
     try {
       const e = await api(existente ? `/empresas/${existente.id}` : "/empresas", { method: existente ? "PUT" : "POST", json: corpo });
       if (novaCert && !existente) await api(`/empresas/${e.id}/certificado`, { method: "POST", body: formCert(novaCert) });
@@ -579,7 +609,7 @@ async function removerCert(id) { if (confirm("Remover o certificado desta empres
 
 /* ---------- Configurações ---------- */
 VIEWS.config = async el => {
-  const abas = [["usuarios", "Usuários"], ["uf", "Alíquotas por UF"], ["mva", "MVA / ICMS-ST"], ["integracao", "Integração com ERP"], ["sistema", "Sistema"]];
+  const abas = [["usuarios", "Usuários"], ["uf", "Alíquotas por UF"], ["mva", "MVA / ICMS-ST"], ["procuradores", "Procuradores (NFS-e)"], ["integracao", "Integração com ERP"], ["sistema", "Sistema"]];
   el.innerHTML = `<div class="tabs">${abas.map(([k, l]) => `<a class="${estado.abaCfg === k ? "on" : ""}" data-a="${k}">${l}</a>`).join("")}</div><div id="cfg"></div>`;
   $$(".tabs a", el).forEach(a => a.onclick = () => { estado.abaCfg = a.dataset.a; mostrar("config"); });
   await CFG[estado.abaCfg]($("#cfg"));
@@ -609,6 +639,24 @@ CFG.mva = async el => {
     try { await api("/parametros/mva", { method: "POST", json: f }); mostrar("config"); } catch (e) { toast(esc(e.message), "var(--er)"); } };
 };
 async function remMVA(id) { await api(`/parametros/mva/${id}`, { method: "DELETE" }); mostrar("config"); }
+CFG.procuradores = async el => {
+  const ps = await api("/procuradores");
+  el.innerHTML = `<div class="card"><h3 style="margin-top:0">Procuração eletrônica para NFS-e Nacional</h3>
+    <p class="muted">Desde 01/11/2026 o Ambiente Nacional da NFS-e aceita consultas em nome de terceiros. O contador (procurador) usa o próprio certificado digital para baixar as NFS-e prestadas e tomadas das empresas que lhe deram <b>procuração eletrônica NFS-e</b>.
+    Cadastre aqui o certificado do procurador e, em <b>Empresas › Editar</b>, escolha "Procuração eletrônica" na consulta de NFS-e.</p>
+    <div class="tbl"><table><thead><tr><th>Procurador</th><th>CPF/CNPJ</th><th>Certificado</th><th>Validade</th><th class="n">Empresas</th><th></th></tr></thead><tbody>
+    ${ps.map(p => `<tr><td><b>${esc(p.nome)}</b></td><td>${docFmt(p.documento)}</td><td class="doc-sub">${esc(p.titular)}${p.tipo === "REPOSITORIO" ? " · instalado no Windows" : ""}</td><td>${dia(p.valido_ate)}</td><td class="n">${p.empresas}</td>
+      <td><button class="btn sm danger" onclick="remProcurador(${p.id})">Remover</button></td></tr>`).join("") || `<tr><td colspan="6" class="muted">Nenhum procurador cadastrado.</td></tr>`}</tbody></table></div></div>
+    <form id="fproc" class="card" style="margin-top:16px"><h3 style="margin-top:0">Incluir procurador</h3>
+    <div class="form"><label class="w2">Nome (opcional — usa o titular do certificado)<input name="nome"></label></div><div id="proc-cert" style="margin-top:10px"></div>
+    <div class="acoes"><button class="btn primary">Incluir procurador</button></div></form>`;
+  blocoCertificado($("#proc-cert"));
+  $("#fproc").onsubmit = async ev => {
+    ev.preventDefault(); const f = new FormData(ev.target), fd = formCert(certDoForm(f)); fd.append("nome", f.get("nome") || "");
+    try { const p = await api("/procuradores", { method: "POST", body: fd }); toast(`Procurador ${esc(p.nome)} incluído`, "var(--ok)"); mostrar("config"); } catch (e) { toast(esc(e.message), "var(--er)"); }
+  };
+};
+async function remProcurador(id) { if (confirm("Remover este procurador? As empresas que o usam voltam a consultar NFS-e com o próprio certificado.")) { await api(`/procuradores/${id}`, { method: "DELETE" }); mostrar("config"); } }
 CFG.integracao = async el => {
   const [c, wh] = await Promise.all([api("/config"), api("/integracoes/webhooks")]);
   el.innerHTML = `<div class="card"><h3>API local para o ERP</h3><div class="kv"><b>Endereço</b><span><code>http://127.0.0.1:${c.config.porta}/api/v1</code></span><b>Chave (header X-API-Key)</b><span><code>${esc(c.config.api_key)}</code></span>

@@ -1,11 +1,13 @@
 package servicos
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"log"
 	"math"
 	"math/rand/v2"
+	"strconv"
 	"strings"
 	"time"
 
@@ -128,6 +130,97 @@ func (m *Monitor) CapturarDistDFe(ctx context.Context, empresaID int64, forcar b
 	}
 	m.Store.SalvarNSU(n)
 	res.UltNSU, res.MaxNSU, res.Proxima = n.UltNSU, n.MaxNSU, n.ProximaConsulta
+	m.Hub.Publicar("captura.ciclo", res)
+	return res, nil
+}
+
+// CapturarNFSe busca as NFS-e do Padrão Nacional (prestadas e tomadas) no ADN.
+// Com procuração, usa o certificado do procurador e informa o CNPJ da empresa
+// em cnpjConsulta. Sem documentos novos, consulta de novo após o intervalo
+// configurado; em HTTP 429 respeita o Retry-After.
+func (m *Monitor) CapturarNFSe(ctx context.Context, empresaID int64, forcar bool) (*ResultadoCaptura, error) {
+	n := m.Store.ObterNSU(empresaID, "NFSE_ADN")
+	if n.UltNSU == "" || strings.Trim(n.UltNSU, "0") == "" {
+		n.UltNSU = "0"
+	}
+	res := &ResultadoCaptura{EmpresaID: empresaID, UltNSU: n.UltNSU, Proxima: n.ProximaConsulta}
+	if t, err := time.Parse(time.RFC3339, n.ProximaConsulta); err == nil && time.Now().Before(t) && (!forcar || n.UltimoCStat == 429) {
+		res.Ignorado = true
+		res.Motivo = "Próxima consulta de NFS-e permitida a partir de " + t.Format("02/01 15:04")
+		return res, nil
+	}
+	cli, emp, via, err := m.ClienteNFSe(empresaID)
+	if err != nil {
+		return nil, err
+	}
+	intervalo := time.Duration(max(60, m.Cfg.IntervaloDistDFeMin)) * time.Minute
+	salvar := func(prox time.Duration, cstat int, motivo string) {
+		n.ProximaConsulta = time.Now().Add(prox).Format(time.RFC3339)
+		n.UltimoCStat, n.UltimoMotivo = cstat, motivo+" · via "+via
+		res.CStat, res.Motivo = cstat, n.UltimoMotivo
+	}
+	for pagina := 0; pagina < 20; pagina++ {
+		n.UltimaConsulta = time.Now().Format(time.RFC3339)
+		r, err := cli.DistNFSe(ctx, n.UltNSU, emp.CNPJ)
+		if err != nil {
+			salvar(15*time.Minute, 0, err.Error())
+			m.Store.SalvarNSU(n)
+			return nil, err
+		}
+		if r.HTTP == 429 {
+			espera := r.RetryAfter
+			if espera < 5*time.Minute {
+				espera = 30 * time.Minute
+			}
+			salvar(espera, 429, r.Mensagem())
+			break
+		}
+		if r.NegadoAcess || len(r.Erros) > 0 {
+			salvar(intervalo, r.HTTP, r.Mensagem())
+			break
+		}
+		maior := int64(0)
+		for _, it := range r.Itens {
+			if v, err := it.NSU.Int64(); err == nil && v > maior {
+				maior = v
+			}
+			tipo := strings.ToUpper(it.TipoDocumento)
+			if len(it.XML) == 0 || tipo == "DPS" || tipo == "CNC" || tipo == "NENHUM" {
+				continue
+			}
+			if tipo == "EVENTO" || it.TipoEvento != "" || (!bytes.Contains(it.XML, []byte("<NFSe")) && bytes.Contains(it.XML, []byte("<evento"))) {
+				if it.ChaveAcesso != "" && (strings.Contains(strings.ToUpper(it.TipoEvento), "CANCEL") || bytes.Contains(it.XML, []byte("e101101")) || bytes.Contains(it.XML, []byte("e105102"))) {
+					if m.Store.AtualizarSituacao(it.ChaveAcesso, StCancelada, 0, "Cancelamento registrado no Ambiente Nacional da NFS-e", "", "") == nil {
+						m.Hub.Publicar("documento.status", map[string]string{"chave": it.ChaveAcesso, "status": StCancelada})
+					}
+				}
+				continue
+			}
+			if _, err := m.Importar(it.XML, "ADN"); err != nil {
+				log.Printf("NFS-e ADN NSU %s: %v", it.NSU, err)
+				continue
+			}
+			res.Documentos++
+		}
+		if maior > 0 {
+			n.UltNSU = strconv.FormatInt(maior, 10)
+		}
+		if r.SemNovos || len(r.Itens) < 50 || maior == 0 {
+			salvar(intervalo, 200, fmt.Sprintf("%d NFS-e recebida(s)", res.Documentos))
+			if r.SemNovos && res.Documentos == 0 {
+				salvar(intervalo, 404, "nenhuma NFS-e nova no Ambiente Nacional")
+			}
+			break
+		}
+		n.ProximaConsulta = ""
+		select {
+		case <-ctx.Done():
+			pagina = 20
+		case <-time.After(1500 * time.Millisecond):
+		}
+	}
+	m.Store.SalvarNSU(n)
+	res.UltNSU, res.Proxima = n.UltNSU, n.ProximaConsulta
 	m.Hub.Publicar("captura.ciclo", res)
 	return res, nil
 }
@@ -317,6 +410,11 @@ func (m *Monitor) executarCiclo(ctx context.Context, ciclo int) {
 			if e.Ativo && e.CapturaAutomatica && e.TemCertificado {
 				if _, err := m.CapturarDistDFe(ctx, e.ID, false); err != nil {
 					log.Printf("captura DF-e %s: %v", e.CNPJ, err)
+				}
+			}
+			if e.Ativo && e.CapturaAutomatica && (e.TemCertificado || (e.NFSeModo == "PROCURACAO" && e.NFSeProcuradorID > 0)) {
+				if _, err := m.CapturarNFSe(ctx, e.ID, false); err != nil {
+					log.Printf("captura NFS-e %s: %v", e.CNPJ, err)
 				}
 			}
 		}

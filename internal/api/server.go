@@ -25,7 +25,7 @@ import (
 	"vorticis.com.br/monitor/internal/store"
 )
 
-const Versao = "1.2.0"
+const Versao = "1.3.0"
 
 type Server struct {
 	M      *servicos.Monitor
@@ -78,6 +78,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/regras", auth(s.listarRegras))
 
 	mux.HandleFunc("GET /api/v1/captura/status", auth(s.capturaStatus))
+	mux.HandleFunc("POST /api/v1/captura/{id}/nfse", fiscalOuAdmin(s.capturaNFSe))
+	mux.HandleFunc("GET /api/v1/procuradores", auth(s.listarProcuradores))
+	mux.HandleFunc("POST /api/v1/procuradores", admin(s.incluirProcurador))
+	mux.HandleFunc("DELETE /api/v1/procuradores/{id}", admin(s.removerProcurador))
 	mux.HandleFunc("POST /api/v1/captura/{id}/executar", fiscalOuAdmin(s.capturaExecutar))
 	mux.HandleFunc("GET /api/v1/sefaz/status", auth(s.sefazStatus))
 
@@ -325,10 +329,17 @@ func (s *Server) salvarEmpresa(w http.ResponseWriter, r *http.Request) {
 		erro(w, 400, "regime deve ser SN, MEI, LP ou LR")
 		return
 	}
+	if e.NFSeModo == "PROCURACAO" {
+		if _, err := s.M.Store.ObterProcurador(e.NFSeProcuradorID); err != nil {
+			erro(w, 400, "escolha o procurador (certificado com procuração eletrônica) para consultar a NFS-e")
+			return
+		}
+	}
 	if err := s.M.Store.SalvarEmpresa(&e); err != nil {
 		erro(w, 400, err.Error())
 		return
 	}
+	s.M.Store.SalvarNFSeEmpresa(e.ID, e.NFSeModo, e.NFSeProcuradorID)
 	s.M.InvalidarCliente(e.ID)
 	s.M.Store.Auditar(usuario(r), "SALVAR_EMPRESA", "empresa", strconv.FormatInt(e.ID, 10), e.CNPJ)
 	jsonOK(w, e)
@@ -731,6 +742,66 @@ func (s *Server) listarRegras(w http.ResponseWriter, r *http.Request) {
 func (s *Server) capturaStatus(w http.ResponseWriter, r *http.Request) {
 	n, _ := s.M.Store.ListarNSU()
 	jsonOK(w, n)
+}
+
+func (s *Server) capturaNFSe(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Minute)
+	defer cancel()
+	res, err := s.M.CapturarNFSe(ctx, idPath(r, "id"), r.URL.Query().Get("forcar") == "1")
+	if err != nil {
+		erro(w, 400, err.Error())
+		return
+	}
+	jsonOK(w, res)
+}
+
+func (s *Server) listarProcuradores(w http.ResponseWriter, r *http.Request) {
+	l, err := s.M.Store.ListarProcuradores()
+	if err != nil {
+		erro(w, 500, err.Error())
+		return
+	}
+	jsonOK(w, l)
+}
+
+// incluirProcurador guarda o certificado (e-CPF/e-CNPJ) de quem tem procuração
+// eletrônica das empresas — normalmente o escritório de contabilidade.
+func (s *Server) incluirProcurador(w http.ResponseWriter, r *http.Request) {
+	cert, pfx, senha, tipo, err := lerCertificado(r)
+	if err != nil {
+		erro(w, 400, err.Error())
+		return
+	}
+	if !cert.Valido() {
+		erro(w, 400, "certificado fora da validade ("+cert.Validade.Format("02/01/2006")+")")
+		return
+	}
+	pc, err := s.M.Cofre.Cifrar(pfx)
+	if err != nil {
+		erro(w, 500, err.Error())
+		return
+	}
+	sc, _ := s.M.Cofre.Cifrar([]byte(senha))
+	nome := strings.TrimSpace(r.FormValue("nome"))
+	if nome == "" {
+		nome = strings.TrimSpace(strings.SplitN(cert.Titular, ":", 2)[0])
+	}
+	p := &store.Procurador{Nome: nome, Documento: cert.CNPJ, Tipo: tipo, Titular: cert.Titular, Emissor: cert.Emissor,
+		ValidoAte: cert.Validade.Format(time.RFC3339), PFX: pc, Senha: sc}
+	if err := s.M.Store.SalvarProcurador(p); err != nil {
+		erro(w, 500, err.Error())
+		return
+	}
+	s.M.Store.Auditar(usuario(r), "PROCURADOR_INCLUIDO", "procurador", strconv.FormatInt(p.ID, 10), cert.Titular)
+	jsonOK(w, p)
+}
+
+func (s *Server) removerProcurador(w http.ResponseWriter, r *http.Request) {
+	id := idPath(r, "id")
+	s.M.Store.RemoverProcurador(id)
+	s.M.InvalidarProcurador(id)
+	s.M.Store.Auditar(usuario(r), "PROCURADOR_REMOVIDO", "procurador", strconv.FormatInt(id, 10), "")
+	jsonOK(w, map[string]bool{"ok": true})
 }
 
 func (s *Server) capturaExecutar(w http.ResponseWriter, r *http.Request) {
