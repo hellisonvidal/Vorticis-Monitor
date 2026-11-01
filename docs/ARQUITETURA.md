@@ -181,6 +181,7 @@ Mapeamento `cStat → status` em `servicos.StatusPorCStat`; transições validad
 | Contingência sem transmissão | situação do documento | status `CONTINGENCIA` visível nas consultas até a autorização |
 | Duplicidade 204/539 | cStat | consulta pela chave recupera o protocolo existente |
 | NFS-e Nacional (ADN) | NFS-e | `NFSE_ADN` em `nsu_controle`; páginas de até 50 itens; 404/lote vazio ⇒ próxima consulta após o intervalo; 429 ⇒ respeita `Retry-After` (mín. 30 min); 401/403 ⇒ certificado sem procuração/vínculo. Com procuração (`empresa.nfse_modo = PROCURACAO`), usa o certificado da tabela `procurador` e `cnpjConsulta` = CNPJ da empresa |
+| NF-e do contador (autXML) | NF-e | `NFE_AUTXML` em `nsu_controle` com `empresa_id = -procurador.id`; Distribuição DF-e com o CPF/CNPJ e a UF do procurador; mesmas regras de 1 h/656; importa só documentos com emitente/destinatário cadastrado |
 | Consumo indevido 656 / nada novo 137 | DF-e | `proxima_consulta = agora + intervalo` (mín. 60 min, padrão 65); sempre usa `ultNSU`; "Buscar agora" não fura a espera. 656 sem consulta própria na última hora ⇒ `concorrente = 1` (outro sistema usa o CNPJ): intervalo mínimo de 2 h + folga aleatória; 656 repetido amplia a espera até 3 h |
 | Certificado ausente/vencido | cadastro / uso | aviso na tela; chamadas à SEFAZ bloqueadas até incluir certificado válido |
 | Certificado de outro CNPJ | upload | recusa (evita rejeição 213) |

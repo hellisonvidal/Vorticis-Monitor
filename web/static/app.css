@@ -152,3 +152,4 @@ tr.total td{font-weight:700;background:var(--pri-s)}
 .rel-prev td.n{white-space:nowrap}
 .rel-prev tr.total td{position:sticky;bottom:0;z-index:1}
 .rel-prev h3{font-size:15px}
+.chk-inline{display:flex!important;flex-direction:row!important;align-items:center;gap:6px;white-space:nowrap}.chk-inline input{width:auto}

@@ -25,7 +25,7 @@ import (
 	"vorticis.com.br/monitor/internal/store"
 )
 
-const Versao = "1.3.0"
+const Versao = "1.4.0"
 
 type Server struct {
 	M      *servicos.Monitor
@@ -82,6 +82,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/procuradores", auth(s.listarProcuradores))
 	mux.HandleFunc("POST /api/v1/procuradores", admin(s.incluirProcurador))
 	mux.HandleFunc("DELETE /api/v1/procuradores/{id}", admin(s.removerProcurador))
+	mux.HandleFunc("PUT /api/v1/procuradores/{id}", admin(s.atualizarProcurador))
+	mux.HandleFunc("POST /api/v1/procuradores/{id}/nfe", fiscalOuAdmin(s.capturaNFeProcurador))
 	mux.HandleFunc("POST /api/v1/captura/{id}/executar", fiscalOuAdmin(s.capturaExecutar))
 	mux.HandleFunc("GET /api/v1/sefaz/status", auth(s.sefazStatus))
 
@@ -787,13 +789,50 @@ func (s *Server) incluirProcurador(w http.ResponseWriter, r *http.Request) {
 		nome = strings.TrimSpace(strings.SplitN(cert.Titular, ":", 2)[0])
 	}
 	p := &store.Procurador{Nome: nome, Documento: cert.CNPJ, Tipo: tipo, Titular: cert.Titular, Emissor: cert.Emissor,
-		ValidoAte: cert.Validade.Format(time.RFC3339), PFX: pc, Senha: sc}
+		ValidoAte: cert.Validade.Format(time.RFC3339), PFX: pc, Senha: sc,
+		UF: strings.ToUpper(r.FormValue("uf")), NFeAutXML: r.FormValue("nfe_autxml") != ""}
+	if p.UF != "" && fiscal.CodigoPorUF[p.UF] == "" {
+		erro(w, 400, "UF do procurador inválida")
+		return
+	}
 	if err := s.M.Store.SalvarProcurador(p); err != nil {
 		erro(w, 500, err.Error())
 		return
 	}
 	s.M.Store.Auditar(usuario(r), "PROCURADOR_INCLUIDO", "procurador", strconv.FormatInt(p.ID, 10), cert.Titular)
 	jsonOK(w, p)
+}
+
+func (s *Server) atualizarProcurador(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		UF        string `json:"uf"`
+		NFeAutXML bool   `json:"nfe_autxml"`
+	}
+	ler(r, &in)
+	if in.UF != "" && fiscal.CodigoPorUF[strings.ToUpper(in.UF)] == "" {
+		erro(w, 400, "UF inválida")
+		return
+	}
+	if in.NFeAutXML && in.UF == "" {
+		erro(w, 400, "informe a UF do procurador para buscar as NF-e")
+		return
+	}
+	if err := s.M.Store.AtualizarProcurador(idPath(r, "id"), in.UF, in.NFeAutXML); err != nil {
+		erro(w, 500, err.Error())
+		return
+	}
+	jsonOK(w, map[string]bool{"ok": true})
+}
+
+func (s *Server) capturaNFeProcurador(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Minute)
+	defer cancel()
+	res, err := s.M.CapturarNFeProcurador(ctx, idPath(r, "id"), r.URL.Query().Get("forcar") == "1")
+	if err != nil {
+		erro(w, 400, err.Error())
+		return
+	}
+	jsonOK(w, res)
 }
 
 func (s *Server) removerProcurador(w http.ResponseWriter, r *http.Request) {

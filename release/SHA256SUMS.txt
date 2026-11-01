@@ -1,2 +1,2 @@
-f13cc1db947ef8075f0d8f8e4cd18141526c894ad5dc0ad0b9a25f1864e468a3  instalador/VorticisMonitor-Setup-1.3.0.exe
-ea104126132d2eb0888f070f645104e6a93831305ab29a775f08fbfe6da8ce88  portatil/VorticisMonitor-Portatil-1.3.0.exe
+38cb1e7b04a67194b9bf43a62f924e6a582a82908b8a15f9cf56b840f3487e20  instalador/VorticisMonitor-Setup-1.4.0.exe
+2ebe970d8109d66a174639b72de9a235b85da6c85c7e0cfba4a26b6a39ca201b  portatil/VorticisMonitor-Portatil-1.4.0.exe

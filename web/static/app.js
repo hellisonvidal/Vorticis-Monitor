@@ -574,7 +574,7 @@ function formEmpresa(el, d, cert, existente) {
   const sel = $("#ie-sel"); if (sel) sel.onchange = () => { if (sel.value) $("#fe [name=ie]").value = sel.value; };
   $("#nfse-modo").onchange = () => $("#nfse-proc-l").classList.toggle("hidden", $("#nfse-modo").value !== "PROCURACAO");
   api("/procuradores").then(ps => { $("#nfse-proc").innerHTML = ps.length ? ps.map(p => `<option value="${p.id}" ${p.id === d.nfse_procurador_id ? "selected" : ""}>${esc(p.nome)} (${docFmt(p.documento)})</option>`).join("")
-    : `<option value="">Nenhum procurador — cadastre em Configurações › Procuradores</option>`; }).catch(() => { });
+    : `<option value="">Nenhum procurador — cadastre em Configurações › Procuradores (contador)</option>`; }).catch(() => { });
   $("#fe").onsubmit = async ev => {
     ev.preventDefault(); const f = Object.fromEntries(new FormData(ev.target));
     const corpo = { ...f, nfse_procurador_id: +f.nfse_procurador_id || 0, ambiente: +f.ambiente, captura_automatica: !!f.captura_automatica, ciencia_automatica: !!existente?.ciencia_automatica, ativo: true, uf: f.uf.toUpperCase() };
@@ -609,7 +609,7 @@ async function removerCert(id) { if (confirm("Remover o certificado desta empres
 
 /* ---------- Configurações ---------- */
 VIEWS.config = async el => {
-  const abas = [["usuarios", "Usuários"], ["uf", "Alíquotas por UF"], ["mva", "MVA / ICMS-ST"], ["procuradores", "Procuradores (NFS-e)"], ["integracao", "Integração com ERP"], ["sistema", "Sistema"]];
+  const abas = [["usuarios", "Usuários"], ["uf", "Alíquotas por UF"], ["mva", "MVA / ICMS-ST"], ["procuradores", "Procuradores (contador)"], ["integracao", "Integração com ERP"], ["sistema", "Sistema"]];
   el.innerHTML = `<div class="tabs">${abas.map(([k, l]) => `<a class="${estado.abaCfg === k ? "on" : ""}" data-a="${k}">${l}</a>`).join("")}</div><div id="cfg"></div>`;
   $$(".tabs a", el).forEach(a => a.onclick = () => { estado.abaCfg = a.dataset.a; mostrar("config"); });
   await CFG[estado.abaCfg]($("#cfg"));
@@ -639,20 +639,40 @@ CFG.mva = async el => {
     try { await api("/parametros/mva", { method: "POST", json: f }); mostrar("config"); } catch (e) { toast(esc(e.message), "var(--er)"); } };
 };
 async function remMVA(id) { await api(`/parametros/mva/${id}`, { method: "DELETE" }); mostrar("config"); }
+const UFS = "AC AL AM AP BA CE DF ES GO MA MG MS MT PA PB PE PI PR RJ RN RO RR RS SC SE SP TO".split(" ");
 CFG.procuradores = async el => {
-  const ps = await api("/procuradores");
-  el.innerHTML = `<div class="card"><h3 style="margin-top:0">Procuração eletrônica para NFS-e Nacional</h3>
-    <p class="muted">Desde 01/11/2026 o Ambiente Nacional da NFS-e aceita consultas em nome de terceiros. O contador (procurador) usa o próprio certificado digital para baixar as NFS-e prestadas e tomadas das empresas que lhe deram <b>procuração eletrônica NFS-e</b>.
-    Cadastre aqui o certificado do procurador e, em <b>Empresas › Editar</b>, escolha "Procuração eletrônica" na consulta de NFS-e.</p>
-    <div class="tbl"><table><thead><tr><th>Procurador</th><th>CPF/CNPJ</th><th>Certificado</th><th>Validade</th><th class="n">Empresas</th><th></th></tr></thead><tbody>
-    ${ps.map(p => `<tr><td><b>${esc(p.nome)}</b></td><td>${docFmt(p.documento)}</td><td class="doc-sub">${esc(p.titular)}${p.tipo === "REPOSITORIO" ? " · instalado no Windows" : ""}</td><td>${dia(p.valido_ate)}</td><td class="n">${p.empresas}</td>
-      <td><button class="btn sm danger" onclick="remProcurador(${p.id})">Remover</button></td></tr>`).join("") || `<tr><td colspan="6" class="muted">Nenhum procurador cadastrado.</td></tr>`}</tbody></table></div></div>
+  const [ps, nsu] = await Promise.all([api("/procuradores"), api("/captura/status").catch(() => [])]);
+  const ufSel = (v, attr) => `<select ${attr}><option value="">UF…</option>${UFS.map(u => `<option ${u === v ? "selected" : ""}>${u}</option>`).join("")}</select>`;
+  el.innerHTML = `<div class="card"><h3 style="margin-top:0">Procuradores (contador)</h3>
+    <p class="muted">O certificado do contador é usado de duas formas:<br>
+    <b>NFS-e Nacional</b> — por <b>procuração eletrônica NFS-e</b>: em Empresas › Editar, escolha "Procuração eletrônica" e o procurador.<br>
+    <b>NF-e</b> — a SEFAZ não aceita procuração; com o certificado do contador são baixadas as NF-e em que ele consta como <b>autorizado a obter o XML</b> (campo autXML da nota). Peça aos clientes que incluam o CPF/CNPJ do contador nesse campo no emissor. Só entram no monitor as notas das empresas cadastradas; as notas recebidas continuam exigindo o certificado da empresa.</p>
+    <div class="tbl"><table><thead><tr><th>Procurador</th><th>Certificado</th><th>UF</th><th>Buscar NF-e (autXML)</th><th>Última busca de NF-e</th><th class="n">Empresas NFS-e</th><th></th></tr></thead><tbody>
+    ${ps.map(p => { const n = nsu.find(x => x.empresa_id === -p.id && x.servico === "NFE_AUTXML") || {};
+      return `<tr data-p="${p.id}"><td><b>${esc(p.nome)}</b><div class="doc-sub">${docFmt(p.documento)}</div></td><td class="doc-sub">${esc(p.titular)}${p.tipo === "REPOSITORIO" ? "<br>instalado no Windows" : ""}<br>válido até ${dia(p.valido_ate)}</td>
+      <td>${ufSel(p.uf, `class="p-uf" style="width:76px"`)}</td><td><label class="chk-inline"><input type="checkbox" class="p-nfe" ${p.nfe_autxml ? "checked" : ""}> Ativa</label></td>
+      <td class="doc-sub"><div style="max-width:300px;overflow-wrap:anywhere">${n.ultima_consulta ? `${dt(n.ultima_consulta)}${n.proxima_consulta ? ` · próxima ${dt(n.proxima_consulta)}` : ""}<br>${n.ultimo_c_stat ? n.ultimo_c_stat + " · " : ""}${esc(n.ultimo_motivo)}` : "ainda não realizada"}</div></td>
+      <td class="n">${p.empresas}</td><td><div style="display:flex;flex-direction:column;gap:6px"><button class="btn sm p-buscar" ${p.nfe_autxml && p.uf ? "" : "disabled"}>Buscar NF-e agora</button> <button class="btn sm danger" onclick="remProcurador(${p.id})">Remover</button></div></td></tr>`; }).join("")
+      || `<tr><td colspan="7" class="muted">Nenhum procurador cadastrado.</td></tr>`}</tbody></table></div></div>
     <form id="fproc" class="card" style="margin-top:16px"><h3 style="margin-top:0">Incluir procurador</h3>
-    <div class="form"><label class="w2">Nome (opcional — usa o titular do certificado)<input name="nome"></label></div><div id="proc-cert" style="margin-top:10px"></div>
+    <div class="form"><label class="w2">Nome (opcional — usa o titular do certificado)<input name="nome"></label><label>UF do procurador${ufSel(estado.empresas[0]?.uf || "", `name="uf"`)}</label>
+    <label class="chk-inline" style="align-self:end;white-space:normal"><input type="checkbox" name="nfe_autxml" checked> Buscar NF-e em que consta como autorizado (autXML)</label></div><div id="proc-cert" style="margin-top:10px"></div>
     <div class="acoes"><button class="btn primary">Incluir procurador</button></div></form>`;
   blocoCertificado($("#proc-cert"));
+  $$("tr[data-p]", el).forEach(tr => {
+    const id = tr.dataset.p, salvar = async () => {
+      try { await api(`/procuradores/${id}`, { method: "PUT", json: { uf: $(".p-uf", tr).value, nfe_autxml: $(".p-nfe", tr).checked } }); toast("Procurador atualizado", "var(--ok)"); mostrar("config", true); }
+      catch (e) { toast(esc(e.message), "var(--er)"); mostrar("config", true); } };
+    $(".p-uf", tr).onchange = salvar; $(".p-nfe", tr).onchange = salvar;
+    $(".p-buscar", tr).onclick = async ev => { const b = ev.target; b.disabled = true; b.textContent = "Consultando SEFAZ…";
+      try { const r = await api(`/procuradores/${id}/nfe?forcar=1`, { method: "POST" }); toast(r.ignorado ? esc(r.motivo) : `${r.documentos} NF-e de empresas cadastradas · ${esc(r.motivo)}`, r.ignorado || r.c_stat === 656 ? "var(--wa)" : "var(--ok)"); }
+      catch (e) { toast(esc(e.message), "var(--er)"); }
+      mostrar("config", true); };
+  });
   $("#fproc").onsubmit = async ev => {
-    ev.preventDefault(); const f = new FormData(ev.target), fd = formCert(certDoForm(f)); fd.append("nome", f.get("nome") || "");
+    ev.preventDefault(); const f = new FormData(ev.target), fd = formCert(certDoForm(f));
+    fd.append("nome", f.get("nome") || ""); fd.append("uf", f.get("uf") || ""); if (f.get("nfe_autxml")) fd.append("nfe_autxml", "1");
+    if (f.get("nfe_autxml") && !f.get("uf")) { toast("Informe a UF do procurador para buscar as NF-e", "var(--er)"); return; }
     try { const p = await api("/procuradores", { method: "POST", body: fd }); toast(`Procurador ${esc(p.nome)} incluído`, "var(--ok)"); mostrar("config"); } catch (e) { toast(esc(e.message), "var(--er)"); }
   };
 };

@@ -45,6 +45,8 @@ func Open(path string) (*Store, error) {
 		  titular TEXT, emissor TEXT, valido_ate TEXT,
 		  pfx_cifrado BLOB NOT NULL, senha_cifrada BLOB NOT NULL,
 		  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
+		`ALTER TABLE procurador ADD COLUMN uf TEXT`,
+		`ALTER TABLE procurador ADD COLUMN nfe_autxml INTEGER NOT NULL DEFAULT 1`,
 	} {
 		db.Exec(m)
 	}
@@ -168,6 +170,10 @@ type Procurador struct {
 	Emissor   string `json:"emissor"`
 	ValidoAte string `json:"valido_ate"`
 	Empresas  int    `json:"empresas"`
+	// UF do procurador (cUFAutor na Distribuição DF-e) e se busca as NF-e em que
+	// ele consta como autorizado a obter o XML (autXML).
+	UF        string `json:"uf"`
+	NFeAutXML bool   `json:"nfe_autxml"`
 	PFX       []byte `json:"-"`
 	Senha     []byte `json:"-"`
 }
@@ -175,8 +181,8 @@ type Procurador struct {
 func (s *Store) SalvarProcurador(p *Procurador) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	r, err := s.DB.Exec(`INSERT INTO procurador (nome, documento, tipo, titular, emissor, valido_ate, pfx_cifrado, senha_cifrada) VALUES (?,?,?,?,?,?,?,?)`,
-		p.Nome, p.Documento, p.Tipo, p.Titular, p.Emissor, p.ValidoAte, p.PFX, p.Senha)
+	r, err := s.DB.Exec(`INSERT INTO procurador (nome, documento, tipo, titular, emissor, valido_ate, pfx_cifrado, senha_cifrada, uf, nfe_autxml) VALUES (?,?,?,?,?,?,?,?,?,?)`,
+		p.Nome, p.Documento, p.Tipo, p.Titular, p.Emissor, p.ValidoAte, p.PFX, p.Senha, strings.ToUpper(p.UF), p.NFeAutXML)
 	if err == nil {
 		p.ID, _ = r.LastInsertId()
 	}
@@ -184,7 +190,7 @@ func (s *Store) SalvarProcurador(p *Procurador) error {
 }
 
 func (s *Store) ListarProcuradores() ([]*Procurador, error) {
-	rows, err := s.DB.Query(`SELECT id, nome, COALESCE(documento,''), tipo, COALESCE(titular,''), COALESCE(emissor,''), COALESCE(valido_ate,''),
+	rows, err := s.DB.Query(`SELECT id, nome, COALESCE(documento,''), tipo, COALESCE(titular,''), COALESCE(emissor,''), COALESCE(valido_ate,''), COALESCE(uf,''), nfe_autxml,
 		(SELECT COUNT(*) FROM empresa e WHERE e.nfse_procurador_id = procurador.id AND e.nfse_modo = 'PROCURACAO') FROM procurador ORDER BY nome`)
 	if err != nil {
 		return nil, err
@@ -193,7 +199,7 @@ func (s *Store) ListarProcuradores() ([]*Procurador, error) {
 	out := []*Procurador{}
 	for rows.Next() {
 		p := &Procurador{}
-		rows.Scan(&p.ID, &p.Nome, &p.Documento, &p.Tipo, &p.Titular, &p.Emissor, &p.ValidoAte, &p.Empresas)
+		rows.Scan(&p.ID, &p.Nome, &p.Documento, &p.Tipo, &p.Titular, &p.Emissor, &p.ValidoAte, &p.UF, &p.NFeAutXML, &p.Empresas)
 		out = append(out, p)
 	}
 	return out, nil
@@ -201,9 +207,15 @@ func (s *Store) ListarProcuradores() ([]*Procurador, error) {
 
 func (s *Store) ObterProcurador(id int64) (*Procurador, error) {
 	p := &Procurador{}
-	err := s.DB.QueryRow(`SELECT id, nome, COALESCE(documento,''), tipo, COALESCE(titular,''), COALESCE(emissor,''), COALESCE(valido_ate,''), pfx_cifrado, senha_cifrada FROM procurador WHERE id = ?`, id).
-		Scan(&p.ID, &p.Nome, &p.Documento, &p.Tipo, &p.Titular, &p.Emissor, &p.ValidoAte, &p.PFX, &p.Senha)
+	err := s.DB.QueryRow(`SELECT id, nome, COALESCE(documento,''), tipo, COALESCE(titular,''), COALESCE(emissor,''), COALESCE(valido_ate,''), COALESCE(uf,''), nfe_autxml, pfx_cifrado, senha_cifrada FROM procurador WHERE id = ?`, id).
+		Scan(&p.ID, &p.Nome, &p.Documento, &p.Tipo, &p.Titular, &p.Emissor, &p.ValidoAte, &p.UF, &p.NFeAutXML, &p.PFX, &p.Senha)
 	return p, err
+}
+
+// AtualizarProcurador altera a UF e a busca de NF-e (autXML) do procurador.
+func (s *Store) AtualizarProcurador(id int64, uf string, autxml bool) error {
+	_, err := s.DB.Exec(`UPDATE procurador SET uf = ?, nfe_autxml = ? WHERE id = ?`, strings.ToUpper(uf), autxml, id)
+	return err
 }
 
 func (s *Store) RemoverProcurador(id int64) error {

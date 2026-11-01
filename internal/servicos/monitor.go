@@ -115,19 +115,25 @@ func (m *Monitor) ClienteNFSe(empresaID int64) (*sefaz.Cliente, *store.Empresa, 
 	if err != nil {
 		return nil, emp, "", errors.New("a empresa está configurada para consultar NFS-e por procuração, mas nenhum procurador foi escolhido — ajuste em Empresas › Editar")
 	}
+	c, err := m.ClienteProcurador(p, emp.Ambiente)
+	return c, emp, "procuração de " + p.Nome, err
+}
+
+// ClienteProcurador devolve (com cache) o cliente com o certificado do procurador.
+func (m *Monitor) ClienteProcurador(p *store.Procurador, ambiente int) (*sefaz.Cliente, error) {
 	chave := -p.ID // procuradores ficam no cache com chave negativa
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if cc := m.clientes[chave]; cc != nil && cc.c.Ambiente == emp.Ambiente {
-		return cc.c, emp, "procuração de " + p.Nome, nil
+	if cc := m.clientes[chave]; cc != nil && cc.c.Ambiente == ambiente {
+		return cc.c, nil
 	}
 	cert, err := m.AbrirCertificado(p.Tipo, p.PFX, p.Senha)
 	if err != nil {
-		return nil, emp, "", fmt.Errorf("certificado do procurador %s: %w", p.Nome, err)
+		return nil, fmt.Errorf("certificado do procurador %s: %w", p.Nome, err)
 	}
-	c := sefaz.NovoCliente(cert, emp.Ambiente, m.Cfg.VerificarTLSSefaz, m.Cfg.CadeiaICPBrasil)
+	c := sefaz.NovoCliente(cert, ambiente, m.Cfg.VerificarTLSSefaz, m.Cfg.CadeiaICPBrasil)
 	m.clientes[chave] = &clienteCache{certID: p.ID, c: c}
-	return c, emp, "procuração de " + p.Nome, nil
+	return c, nil
 }
 
 // InvalidarProcurador descarta o cliente em cache do procurador.

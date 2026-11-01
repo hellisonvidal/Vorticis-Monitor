@@ -3,6 +3,7 @@ package servicos
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"math"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"vorticis.com.br/monitor/internal/fiscal"
+	"vorticis.com.br/monitor/internal/sefaz"
 	"vorticis.com.br/monitor/internal/store"
 )
 
@@ -42,8 +44,39 @@ type ResultadoCaptura struct {
 //     sistema está consultando o CNPJ: o intervalo passa a ser no mínimo 2 h,
 //     com uma folga aleatória, para não disputar a mesma janela.
 func (m *Monitor) CapturarDistDFe(ctx context.Context, empresaID int64, forcar bool) (*ResultadoCaptura, error) {
-	n := m.Store.ObterNSU(empresaID, "NFE_DISTDFE")
-	res := &ResultadoCaptura{EmpresaID: empresaID, UltNSU: n.UltNSU, Proxima: n.ProximaConsulta}
+	return m.capturarDist(ctx, alvoDist{
+		chaveNSU: empresaID, servico: "NFE_DISTDFE",
+		abrir: func() (*sefaz.Cliente, string, string, error) {
+			cli, emp, err := m.ClienteSefaz(empresaID)
+			if err != nil {
+				return nil, "", "", err
+			}
+			return cli, fiscal.CodigoPorUF[emp.UF], emp.CNPJ, nil
+		},
+		aposImportar: func(d sefaz.DocZip, ir *ResultadoImportacao) {
+			emp, err := m.Store.ObterEmpresa(empresaID)
+			if err == nil && strings.HasPrefix(d.Schema, "resNFe") && emp.CienciaAutomatica && ir.Status == StResumo {
+				if _, err := m.Manifestar(ctx, ir.Chave, "210210", ""); err != nil {
+					log.Printf("ciência automática %s: %v", ir.Chave, err)
+				}
+			}
+		},
+	}, forcar)
+}
+
+// alvoDist parametriza a Distribuição DF-e: a própria empresa ou um procurador
+// (contador) que consulta as NF-e em que consta como autorizado (autXML).
+type alvoDist struct {
+	chaveNSU     int64  // empresa (positivo) ou procurador (negativo) no controle de NSU
+	servico      string // NFE_DISTDFE | NFE_AUTXML
+	abrir        func() (cli *sefaz.Cliente, cUF, doc string, err error)
+	aceitar      func(xml []byte) bool // nil = importa tudo
+	aposImportar func(d sefaz.DocZip, ir *ResultadoImportacao)
+}
+
+func (m *Monitor) capturarDist(ctx context.Context, a alvoDist, forcar bool) (*ResultadoCaptura, error) {
+	n := m.Store.ObterNSU(a.chaveNSU, a.servico)
+	res := &ResultadoCaptura{EmpresaID: a.chaveNSU, UltNSU: n.UltNSU, Proxima: n.ProximaConsulta}
 	if t, err := time.Parse(time.RFC3339, n.ProximaConsulta); err == nil && time.Now().Before(t) {
 		// "Buscar agora" só antecipa a consulta quando a espera não é exigida pela SEFAZ.
 		if !forcar || n.UltimoCStat == 137 || n.UltimoCStat == 656 {
@@ -53,7 +86,7 @@ func (m *Monitor) CapturarDistDFe(ctx context.Context, empresaID int64, forcar b
 			return res, nil
 		}
 	}
-	cli, emp, err := m.ClienteSefaz(empresaID)
+	cli, cUF, docInteressado, err := a.abrir()
 	if err != nil {
 		return nil, err
 	}
@@ -70,7 +103,7 @@ func (m *Monitor) CapturarDistDFe(ctx context.Context, empresaID int64, forcar b
 	for i := 0; i < 20; i++ {
 		anterior := n.UltimaConsulta
 		n.UltimaConsulta = time.Now().Format(time.RFC3339)
-		r, err := cli.DistDFePorNSU(ctx, fiscal.CodigoPorUF[emp.UF], emp.CNPJ, n.UltNSU)
+		r, err := cli.DistDFePorNSU(ctx, cUF, docInteressado, n.UltNSU)
 		if err != nil {
 			n.ProximaConsulta = time.Now().Add(15 * time.Minute).Format(time.RFC3339)
 			n.UltimoCStat, n.UltimoMotivo = 0, err.Error()
@@ -101,7 +134,7 @@ func (m *Monitor) CapturarDistDFe(ctx context.Context, empresaID int64, forcar b
 		}
 		n.MaxNSU = r.MaxNSU
 		for _, d := range r.Docs {
-			if len(d.XML) == 0 {
+			if len(d.XML) == 0 || (a.aceitar != nil && !a.aceitar(d.XML)) {
 				continue
 			}
 			ir, err := m.Importar(d.XML, "DISTDFE")
@@ -110,10 +143,8 @@ func (m *Monitor) CapturarDistDFe(ctx context.Context, empresaID int64, forcar b
 				continue
 			}
 			res.Documentos++
-			if strings.HasPrefix(d.Schema, "resNFe") && emp.CienciaAutomatica && ir.Status == StResumo {
-				if _, err := m.Manifestar(ctx, ir.Chave, "210210", ""); err != nil {
-					log.Printf("ciência automática %s: %v", ir.Chave, err)
-				}
+			if a.aposImportar != nil {
+				a.aposImportar(d, ir)
 			}
 		}
 		if r.CStat != 138 || n.UltNSU == n.MaxNSU {
@@ -132,6 +163,43 @@ func (m *Monitor) CapturarDistDFe(ctx context.Context, empresaID int64, forcar b
 	res.UltNSU, res.MaxNSU, res.Proxima = n.UltNSU, n.MaxNSU, n.ProximaConsulta
 	m.Hub.Publicar("captura.ciclo", res)
 	return res, nil
+}
+
+// CapturarNFeProcurador busca, com o certificado do procurador (contador), as NF-e
+// em que ele consta como autorizado a obter o XML (grupo autXML). Só importa
+// documentos de empresas cadastradas no monitor (emitente ou destinatário).
+func (m *Monitor) CapturarNFeProcurador(ctx context.Context, procID int64, forcar bool) (*ResultadoCaptura, error) {
+	p, err := m.Store.ObterProcurador(procID)
+	if err != nil {
+		return nil, fmt.Errorf("procurador %d não encontrado", procID)
+	}
+	return m.capturarDist(ctx, alvoDist{
+		chaveNSU: -procID, servico: "NFE_AUTXML",
+		abrir: func() (*sefaz.Cliente, string, string, error) {
+			if p.UF == "" || fiscal.CodigoPorUF[p.UF] == "" {
+				return nil, "", "", errors.New("informe a UF do procurador em Configurações › Procuradores")
+			}
+			cli, err := m.ClienteProcurador(p, 1)
+			if err != nil {
+				return nil, "", "", err
+			}
+			return cli, fiscal.CodigoPorUF[p.UF], p.Documento, nil
+		},
+		aceitar: func(xml []byte) bool {
+			emps, _ := m.Store.ListarEmpresas()
+			doc := string(xml)
+			for _, e := range emps {
+				if !e.Ativo {
+					continue
+				}
+				// emitente/destinatário da nota ou CNPJ do emitente embutido na chave (eventos)
+				if strings.Contains(doc, "<CNPJ>"+e.CNPJ+"</CNPJ>") || strings.Contains(doc, "<chNFe>") && strings.Contains(doc, e.CNPJ) {
+					return true
+				}
+			}
+			return false
+		},
+	}, forcar)
 }
 
 // CapturarNFSe busca as NFS-e do Padrão Nacional (prestadas e tomadas) no ADN.
@@ -415,6 +483,14 @@ func (m *Monitor) executarCiclo(ctx context.Context, ciclo int) {
 			if e.Ativo && e.CapturaAutomatica && (e.TemCertificado || (e.NFSeModo == "PROCURACAO" && e.NFSeProcuradorID > 0)) {
 				if _, err := m.CapturarNFSe(ctx, e.ID, false); err != nil {
 					log.Printf("captura NFS-e %s: %v", e.CNPJ, err)
+				}
+			}
+		}
+		procs, _ := m.Store.ListarProcuradores()
+		for _, p := range procs {
+			if p.NFeAutXML && p.UF != "" {
+				if _, err := m.CapturarNFeProcurador(ctx, p.ID, false); err != nil {
+					log.Printf("captura NF-e autXML do procurador %s: %v", p.Nome, err)
 				}
 			}
 		}
