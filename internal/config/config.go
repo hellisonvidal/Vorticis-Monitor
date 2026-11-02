@@ -36,6 +36,12 @@ type Config struct {
 	PastaMonitorada         string  `json:"pasta_monitorada,omitempty"` // importação automática de XML (ERP grava aqui)
 	ConsultarPendentesSefaz bool    `json:"consultar_pendentes_sefaz"`
 
+	// Backup automático: pasta de destino (pendrive, rede, pasta sincronizada com a
+	// nuvem), frequência ("" desativado, "diario", "semanal") e cópias do banco mantidas.
+	BackupPasta      string `json:"backup_pasta,omitempty"`
+	BackupFrequencia string `json:"backup_frequencia,omitempty"`
+	BackupManter     int    `json:"backup_manter,omitempty"`
+
 	DataDir string `json:"-"`
 }
 

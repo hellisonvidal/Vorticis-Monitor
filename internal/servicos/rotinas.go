@@ -469,6 +469,7 @@ func (m *Monitor) executarCiclo(ctx context.Context, ciclo int) {
 		}
 	}()
 	m.ProcessarPastaMonitorada()
+	m.BackupSeVencido()
 	if ciclo%5 == 0 {
 		if m.Cfg.ConsultarPendentesSefaz {
 			m.ConsultarPendentes(ctx, 50)

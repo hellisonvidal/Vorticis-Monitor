@@ -609,7 +609,7 @@ async function removerCert(id) { if (confirm("Remover o certificado desta empres
 
 /* ---------- Configurações ---------- */
 VIEWS.config = async el => {
-  const abas = [["usuarios", "Usuários"], ["uf", "Alíquotas por UF"], ["mva", "MVA / ICMS-ST"], ["procuradores", "Procuradores (contador)"], ["integracao", "Integração com ERP"], ["sistema", "Sistema"]];
+  const abas = [["usuarios", "Usuários"], ["uf", "Alíquotas por UF"], ["mva", "MVA / ICMS-ST"], ["procuradores", "Procuradores (contador)"], ["integracao", "Integração com ERP"], ["backup", "Backup"], ["sistema", "Sistema"]];
   el.innerHTML = `<div class="tabs">${abas.map(([k, l]) => `<a class="${estado.abaCfg === k ? "on" : ""}" data-a="${k}">${l}</a>`).join("")}</div><div id="cfg"></div>`;
   $$(".tabs a", el).forEach(a => a.onclick = () => { estado.abaCfg = a.dataset.a; mostrar("config"); });
   await CFG[estado.abaCfg]($("#cfg"));
@@ -708,6 +708,35 @@ CFG.sistema = async el => {
   $("#fs").onsubmit = async ev => { ev.preventDefault(); const o = {};
     for (const [k, v] of new FormData(ev.target)) o[k] = ["verificar_tls_sefaz", "consultar_pendentes_sefaz"].includes(k) ? !!v : (/^(pasta_monitorada|cadeia_icp_brasil)$/.test(k) ? v : +String(v).replace(",", "."));
     try { await api("/config", { method: "PUT", json: o }); toast("Configuração salva", "var(--ok)"); } catch (e) { toast(esc(e.message), "var(--er)"); } };
+};
+
+CFG.backup = async el => {
+  const [c, b] = await Promise.all([api("/config"), api("/backup")]), cf = c.config;
+  const tam = n => n > 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.ceil((n || 0) / 1024) + " KB";
+  el.innerHTML = `<div class="grid g2">
+  <form id="fb" class="card"><h3 style="margin-top:0">Backup automático</h3>
+    <p class="muted">Copia o banco (notas, eventos, cadastros e configurações) e todos os XMLs para outra pasta — pendrive, disco externo, rede ou uma pasta sincronizada com a nuvem (OneDrive, Google Drive). Os XMLs são copiados de forma incremental (só os novos) e nunca são apagados do destino.</p>
+    <div class="form">
+      <label class="w2">Pasta de destino<div class="com-botao"><input name="backup_pasta" value="${esc(cf.backup_pasta || "")}" placeholder="ex.: E:\\ ou C:\\Users\\voce\\OneDrive"><button type="button" class="btn sm" id="bk-proc">${svg("docs")} Procurar…</button></div></label>
+      <label>Frequência<select name="backup_frequencia">${[["", "Desativado"], ["diario", "Diário"], ["semanal", "Semanal"]].map(([k, l]) => `<option value="${k}" ${(cf.backup_frequencia || "") === k ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+      <label>Cópias do banco mantidas<select name="backup_manter">${[3, 7, 14, 30, 60].map(n => `<option ${(cf.backup_manter || 7) === n ? "selected" : ""}>${n}</option>`).join("")}</select></label>
+    </div>
+    <div class="acoes"><button class="btn primary">Salvar</button><button type="button" class="btn" id="bk-agora" ${b.em_andamento ? "disabled" : ""}>${b.em_andamento ? "Backup em andamento…" : "Fazer backup agora"}</button></div></form>
+  <div class="card"><h3 style="margin-top:0">Situação</h3><div class="kv">
+    <b>Último backup</b><span>${b.ultimo ? dt(b.ultimo) + (b.duracao_seg ? ` (${b.duracao_seg}s)` : "") : "nenhum realizado"}</span>
+    <b>Próximo</b><span>${b.proximo ? dt(b.proximo) : cf.backup_frequencia ? "assim que a pasta for escolhida" : "backup automático desativado"}</span>
+    ${b.arquivo ? `<b>Cópia do banco</b><span style="word-break:break-all">${esc(b.arquivo)} · ${tam(b.tamanho_banco)}</span><b>XMLs</b><span>${b.xml_total} no backup · ${b.xml_copiados} novos na última cópia</span>` : ""}
+    ${b.erro ? `<b>Erro</b><span style="color:var(--er)">${esc(b.erro)}</span>` : ""}</div>
+    <p class="muted" style="font-size:12.5px;margin-top:14px">Restaurar: feche o programa e copie <code>vorticis.db</code>, <code>config.json</code> e <code>chave.mestra</code> do ZIP mais recente (pasta <code>banco</code>) e a pasta <code>xml</code> para a pasta de dados <code>${esc(c.diretorio_dados)}</code>. O LEIA-ME dentro de cada ZIP explica o passo a passo. Em outro computador, inclua os certificados digitais novamente.</p></div></div>`;
+  $("#bk-proc").onclick = () => navegador({ inicial: $("[name=backup_pasta]", el).value, titulo: "Escolher a pasta de destino do backup", ok: v => { $("[name=backup_pasta]", el).value = v; } });
+  $("#fb").onsubmit = async ev => { ev.preventDefault(); const f = Object.fromEntries(new FormData(ev.target));
+    if (f.backup_frequencia && !f.backup_pasta.trim()) { toast("Escolha a pasta de destino do backup", "var(--er)"); return; }
+    try { await api("/config", { method: "PUT", json: { backup_pasta: f.backup_pasta.trim(), backup_frequencia: f.backup_frequencia, backup_manter: +f.backup_manter } }); toast("Backup configurado", "var(--ok)"); mostrar("config", true); }
+    catch (e) { toast(esc(e.message), "var(--er)"); } };
+  $("#bk-agora").onclick = async ev => { const bt = ev.target; bt.disabled = true; bt.textContent = "Copiando…";
+    try { await api("/config", { method: "PUT", json: { backup_pasta: $("[name=backup_pasta]", el).value.trim() } }); const r = await api("/backup/executar", { method: "POST", tempo: 30 * 60000 }); toast(`Backup concluído · ${r.xml_copiados} XML novo(s)`, "var(--ok)"); }
+    catch (e) { toast(esc(e.message), "var(--er)"); }
+    mostrar("config", true); };
 };
 
 // Navegador de pastas/arquivos do computador (o caminho é lido pelo próprio programa).

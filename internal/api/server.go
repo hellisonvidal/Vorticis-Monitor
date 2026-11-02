@@ -25,7 +25,7 @@ import (
 	"vorticis.com.br/monitor/internal/store"
 )
 
-const Versao = "1.4.0"
+const Versao = "1.5.0"
 
 type Server struct {
 	M      *servicos.Monitor
@@ -107,6 +107,15 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/auditoria", admin(s.auditoria))
 	mux.HandleFunc("GET /api/v1/config", admin(s.obterConfig))
 	mux.HandleFunc("GET /api/v1/sistema/pastas", admin(s.navegarPastas))
+	mux.HandleFunc("GET /api/v1/backup", admin(func(w http.ResponseWriter, r *http.Request) { jsonOK(w, s.M.EstadoDoBackup()) }))
+	mux.HandleFunc("POST /api/v1/backup/executar", admin(func(w http.ResponseWriter, r *http.Request) {
+		e, err := s.M.FazerBackup()
+		if err != nil {
+			erro(w, 400, err.Error())
+			return
+		}
+		jsonOK(w, e)
+	}))
 	mux.HandleFunc("POST /api/v1/sistema/pastas", admin(s.criarPasta))
 	mux.HandleFunc("PUT /api/v1/config", admin(s.salvarConfig))
 

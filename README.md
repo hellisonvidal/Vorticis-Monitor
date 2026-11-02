@@ -13,6 +13,7 @@ Arquitetura completa (ERD, motor de regras, máquina de estados, endpoints): [`d
 - **Recebidos:** busca automática na SEFAZ (Distribuição DF-e), manifestação do destinatário assinada e download do XML completo. Convive com outros monitores de notas que usam o mesmo CNPJ: respeita a regra de 1 hora da SEFAZ, detecta o bloqueio 656 causado por outro sistema e amplia o intervalo automaticamente.
 - **NFS-e Nacional (ADN):** busca automática das NFS-e prestadas e tomadas no Ambiente de Dados Nacional (`GET /contribuintes/DFe/{NSU}?lote=true&cnpjConsulta=`), com o certificado da própria empresa ou por **procuração eletrônica** — o contador cadastra o próprio certificado em Configurações › Procuradores e escolhe, em cada empresa, "Procuração eletrônica".
 - **NF-e pelo certificado do contador:** a SEFAZ não aceita procuração para NF-e; com o certificado do procurador o monitor baixa as NF-e em que ele consta como **autorizado a obter o XML** (`autXML`) e importa só as das empresas cadastradas (Configurações › Procuradores, com a UF do procurador).
+- **Backup automático** (Configurações › Backup): diário ou semanal para pendrive, rede ou pasta da nuvem — cópia consistente do banco em ZIP (mantém as últimas N) e espelho incremental dos XMLs, que nunca são apagados no destino. As notas ficam guardadas no monitor sem prazo, mesmo depois dos 90 dias de disponibilidade na SEFAZ.
 - **Situação na SEFAZ** e **conferência fiscal** de cada documento (chave, CNPJ/IE, CFOP, NCM/CEST, ICMS, ST, DIFAL, IPI, PIS/COFINS, retenções, contingência).
 - **Cadastro da empresa só pelo CNPJ:** dados da Receita Federal (BrasilAPI, CNPJ.ws, ReceitaWS) e Inscrição Estadual pelo Sintegra (via CNPJ.ws) ou pela **SEFAZ da UF com o certificado digital** — inclusive cadastrando direto a partir do arquivo do certificado.
 - **Certificado digital** escolhido entre os **instalados no Windows** ou pelo arquivo .pfx. Chave exportável → cópia criptografada no cofre (AES-256-GCM + DPAPI); não exportável → o monitor assina pelo próprio Windows (CNG), sem copiar a chave.
@@ -22,8 +23,8 @@ São **duas versões separadas** — escolha uma:
 
 | Versão | Arquivo | Para quê |
 |---|---|---|
-| **Instalador** | `instalador/VorticisMonitor-Setup-1.4.0.exe` | Instala o programa para o usuário atual — **não exige administrador** —, com atalhos, inicialização automática opcional e desinstalador. Dados em `%LOCALAPPDATA%\Vorticis\Monitor`. |
-| **Portátil** | `portatil/VorticisMonitor-Portatil-1.4.0.exe` | Arquivo único, sem instalação: coloque numa pasta ou pendrive e abra. Dados na pasta `dados` criada ao lado do arquivo. |
+| **Instalador** | `instalador/VorticisMonitor-Setup-1.5.0.exe` | Instala o programa para o usuário atual — **não exige administrador** —, com atalhos, inicialização automática opcional e desinstalador. Dados em `%LOCALAPPDATA%\Vorticis\Monitor`. |
+| **Portátil** | `portatil/VorticisMonitor-Portatil-1.5.0.exe` | Arquivo único, sem instalação: coloque numa pasta ou pendrive e abra. Dados na pasta `dados` criada ao lado do arquivo. |
 
 `SHA256SUMS.txt` traz os hashes para conferência da integridade.
 
