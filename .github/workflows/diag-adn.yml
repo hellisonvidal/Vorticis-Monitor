@@ -1,0 +1,27 @@
+name: Diagnóstico ADN (temporário)
+on:
+  push:
+    branches: [diagnostico-adn]
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+      - name: Go
+        run: go run ./diag/adn
+      - name: OpenSSL
+        run: |
+          openssl req -x509 -newkey rsa:2048 -nodes -keyout k.pem -out c.pem -days 1 -subj "/CN=TESTE:11222333000181" 2>/dev/null
+          for h in adn.nfse.gov.br; do
+            for v in -tls1_2 -tls1_3; do
+              echo "=== openssl $h $v sem cert"
+              printf 'GET /contribuintes/DFe/0?lote=true HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n' $h | timeout 25 openssl s_client -connect $h:443 -servername $h $v -ign_eof 2>&1 | grep -E "Protocol|Cipher|Verify return|Acceptable client certificate CA names|alert|error|HTTP/|Extended master|Secure Renegotiation|^---|depth=" | head -30
+              echo "=== openssl $h $v com cert"
+              printf 'GET /contribuintes/DFe/0?lote=true HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n' $h | timeout 25 openssl s_client -connect $h:443 -servername $h $v -cert c.pem -key k.pem -ign_eof 2>&1 | grep -E "Protocol|Cipher|alert|error|HTTP/|Extended master|Secure Renegotiation" | head -20
+            done
+          done
+          echo "=== curl"
+          curl -sv --max-time 25 --cert c.pem --key k.pem "https://adn.nfse.gov.br/contribuintes/DFe/0?lote=true" 2>&1 | grep -vE "^\* +(subject|start|expire|issuer)" | head -40
