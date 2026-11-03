@@ -173,9 +173,13 @@ tr.inativo td{opacity:.55}.card.filial{border-left:3px solid var(--pri-s)}
 .emp-lista a:hover,.emp-lista a:first-child:focus{background:var(--pri-s)}.emp-lista a.on{background:var(--pri-s);color:var(--pri)}
 .emp-lista a b{font-variant-numeric:tabular-nums;white-space:nowrap;font-weight:600}.emp-lista a span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}.emp-lista a i{font-style:normal;font-size:11px;color:var(--mut)}
 .tab-emp td{padding:8px 12px;font-size:13px}.tab-emp tbody tr{cursor:default}.tab-emp td.cnpj{font-variant-numeric:tabular-nums;white-space:nowrap;font-weight:600}
-.tab-emp tr.filial td.cnpj{padding-left:28px;font-weight:500}.tab-emp tr.filial td.cnpj:before{content:"↳ ";color:var(--mut)}
+.tab-emp tr.filial td.cnpj{padding-left:16px;font-weight:500}.tab-emp tr.filial td.cnpj:before{content:"↳ ";color:var(--mut)}
 .emp-acoes{display:flex;gap:4px;justify-content:flex-end;flex-wrap:nowrap}.emp-acoes .btn{padding:4px 8px}.emp-acoes svg{width:14px;height:14px}
 .opcoes{display:flex;flex-direction:column;gap:8px;margin:8px 0}.opcoes .chk-inline{white-space:normal;font-size:13px;color:var(--tx)}
 .btn.danger-bg{background:var(--er);border-color:var(--er)}.btn.danger-bg:hover{background:#b91c1c}
 .tab-mon td{vertical-align:top;font-size:12.5px}.tab-mon tbody tr{cursor:default}.tab-mon .motivo{max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.tab-emp td:nth-child(2){min-width:240px}.tab-emp td:nth-child(5){white-space:nowrap}
+.tab-emp{table-layout:fixed;width:100%}.tab-emp th,.tab-emp td{padding:8px 10px;overflow:hidden}
+.tab-emp col.c-cnpj{width:196px}.tab-emp col.c-tipo{width:180px}.tab-emp col.c-cert{width:21%}.tab-emp col.c-acoes{width:146px}
+.tab-emp .nome{display:block;overflow-wrap:anywhere}.tab-emp .doc-sub{overflow-wrap:anywhere}.tab-emp .tags{display:flex;gap:4px;flex-wrap:wrap}
+.emp-acoes .btn.icone{padding:5px}.emp-acoes svg{width:15px;height:15px}
+@media (max-width:1100px){.tab-emp col.c-tipo{width:120px}.tab-emp col.c-cnpj{width:184px}.tab-emp col.c-cert{width:22%}}

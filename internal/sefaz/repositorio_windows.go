@@ -151,15 +151,12 @@ func CarregarRepositorio(impressao string) (*Certificado, error) {
 	if !ok {
 		return nil, errors.New("chave do certificado não é RSA")
 	}
-	chain := [][]byte{c.leaf.Raw}
+	// ACs da cadeia montada pelo Windows (quando ele a conhece) + as baixadas pelo AIA.
+	var extras []*x509.Certificate
 	if cadeias, err := c.leaf.Verify(x509.VerifyOptions{KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny}}); err == nil && len(cadeias) > 0 {
-		for _, ic := range cadeias[0][1:] {
-			if ic.Subject.String() != ic.Issuer.String() { // sem a raiz
-				chain = append(chain, ic.Raw)
-			}
-		}
+		extras = cadeias[0][1:]
 	}
-	return montarCertificado(c.leaf, chain, &assinadorCNG{h: h, pub: pub}, "REPOSITORIO"), nil
+	return montarCertificado(c.leaf, completarCadeia(c.leaf, extras), &assinadorCNG{h: h, pub: pub}, "REPOSITORIO"), nil
 }
 
 // assinadorCNG implementa crypto.Signer com NCryptSignHash.
