@@ -3,15 +3,12 @@ package relatorios
 import (
 	"archive/zip"
 	"bytes"
-	"encoding/binary"
-	"errors"
 	"fmt"
 	"io"
 	"math"
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf16"
 
 	"github.com/go-pdf/fpdf"
 )
@@ -20,7 +17,6 @@ import (
 var Formatos = map[string]string{
 	"pdf":  "application/pdf",
 	"xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-	"xls":  "application/vnd.ms-excel",
 	"csv":  "text/csv; charset=utf-8",
 }
 
@@ -31,12 +27,10 @@ func (r *Relatorio) Escrever(w io.Writer, formato string) error {
 		return r.pdf(w)
 	case "xlsx":
 		return r.xlsx(w)
-	case "xls":
-		return r.xls(w)
 	case "csv":
 		return r.csv(w)
 	}
-	return fmt.Errorf("formato %q não suportado (use pdf, xlsx, xls ou csv)", formato)
+	return fmt.Errorf("formato %q não suportado (use pdf, xlsx ou csv)", formato)
 }
 
 // ---------------- PDF ----------------
@@ -290,229 +284,4 @@ func (r *Relatorio) xlsx(w io.Writer) error {
 		return err
 	}
 	return z.Close()
-}
-
-// ---------------- XLS (Excel 97-2003, BIFF8 em Compound File) ----------------
-
-type biff struct{ bytes.Buffer }
-
-func (b *biff) rec(tipo uint16, dados ...any) {
-	var p bytes.Buffer
-	for _, d := range dados {
-		binary.Write(&p, binary.LittleEndian, d)
-	}
-	binary.Write(&b.Buffer, binary.LittleEndian, tipo)
-	binary.Write(&b.Buffer, binary.LittleEndian, uint16(p.Len()))
-	b.Write(p.Bytes())
-}
-
-// strXL codifica XLUnicodeString (cch de 16 bits) em UTF-16, limitado a 255 caracteres.
-func strXL(s string, cch8 bool) []byte {
-	u := utf16.Encode([]rune(s))
-	if len(u) > 255 {
-		u = u[:255]
-	}
-	var p bytes.Buffer
-	if cch8 {
-		p.WriteByte(byte(len(u)))
-	} else {
-		binary.Write(&p, binary.LittleEndian, uint16(len(u)))
-	}
-	p.WriteByte(1) // fHighByte: caracteres de 16 bits
-	binary.Write(&p, binary.LittleEndian, u)
-	return p.Bytes()
-}
-
-func (r *Relatorio) xls(w io.Writer) error {
-	if len(r.Linhas)+6 > 65536 {
-		return errors.New("o formato XLS (Excel 97-2003) aceita até 65.536 linhas — use XLSX ou CSV")
-	}
-	bof := func(b *biff, dt uint16) {
-		b.rec(0x0809, uint16(0x0600), dt, uint16(0x0DBB), uint16(0x07CC), uint32(0), uint32(0x06))
-	}
-	// ---- globais
-	g := &biff{}
-	bof(g, 0x0005)
-	g.rec(0x0042, uint16(1200))                                                                                                          // CODEPAGE UTF-16
-	g.rec(0x003D, uint16(0), uint16(0), uint16(0x4000), uint16(0x2000), uint16(0x0038), uint16(0), uint16(0), uint16(1), uint16(0x0258)) // WINDOW1
-	g.rec(0x0022, uint16(0))                                                                                                             // DATEMODE 1900
-	fonte := func(altura, peso uint16) {
-		g.rec(0x0031, altura, uint16(0), uint16(0x7FFF), peso, uint16(0), uint8(0), uint8(0), uint8(0), uint8(0), strXL("Arial", true))
-	}
-	for i := 0; i < 4; i++ { // 0..3 (o índice 4 não existe no BIFF)
-		fonte(200, 400)
-	}
-	fonte(200, 700) // 5 negrito
-	fonte(280, 700) // 6 título
-	xf := func(fnt, fmtID, flags uint16, usado uint8) {
-		g.rec(0x00E0, fnt, fmtID, flags, uint8(0x20), uint8(0), uint8(0), usado, uint32(0), uint32(0), uint16(0x20C0))
-	}
-	for i := 0; i < 15; i++ { // XF de estilo 0..14
-		xf(0, 0, 0xFFF5, 0)
-	}
-	xf(0, 0, 0x0001, 0) // 15 célula padrão
-	const (
-		xfMoeda = 16 + iota
-		xfData
-		xfNegrito
-		xfNegritoMoeda
-		xfTitulo
-		xfInteiro
-		xfNegritoInteiro
-	)
-	xf(0, 4, 0x0001, 0xFC)  // #,##0.00
-	xf(0, 14, 0x0001, 0xFC) // data
-	xf(5, 0, 0x0001, 0xFC)
-	xf(5, 4, 0x0001, 0xFC)
-	xf(6, 0, 0x0001, 0xFC)
-	xf(0, 1, 0x0001, 0xFC)
-	xf(5, 1, 0x0001, 0xFC)
-	g.rec(0x0293, uint16(0x8000), uint8(0), uint8(0xFF)) // STYLE Normal
-	nomeAba := []rune(r.Titulo)
-	if len(nomeAba) > 31 {
-		nomeAba = nomeAba[:31]
-	}
-	nome := strXL(strings.NewReplacer("/", "-", "?", "", "*", "", "[", "(", "]", ")", ":", "").Replace(string(nomeAba)), true)
-	posBound := g.Len() + 4
-	g.rec(0x0085, uint32(0), uint8(0), uint8(0), nome) // BOUNDSHEET (posição ajustada abaixo)
-	g.rec(0x000A)
-	// ---- planilha
-	s := &biff{}
-	bof(s, 0x0010)
-	ultima := 4 + len(r.Linhas)
-	if r.Total != nil {
-		ultima++
-	}
-	s.rec(0x0200, uint32(0), uint32(ultima), uint16(0), uint16(len(r.Colunas)), uint16(0))
-	for i, c := range r.Colunas {
-		s.rec(0x007D, uint16(i), uint16(i), uint16(larguraPlanilha(c)*256), uint16(15), uint16(0), uint16(0))
-	}
-	label := func(l, c int, txt string, x uint16) { s.rec(0x0204, uint16(l), uint16(c), x, strXL(txt, false)) }
-	numero := func(l, c int, v float64, x uint16) { s.rec(0x0203, uint16(l), uint16(c), x, v) }
-	label(0, 0, r.Titulo, xfTitulo)
-	label(1, 0, r.Filtros+" · gerado em "+time.Now().Format("02/01/2006 15:04"), 15)
-	for i, c := range r.Colunas {
-		label(3, i, c.Titulo, xfNegrito)
-	}
-	linha := func(n int, l []any, total bool) {
-		for i, v := range l {
-			switch x := v.(type) {
-			case float64:
-				numero(n, i, x, map[bool]uint16{false: xfMoeda, true: xfNegritoMoeda}[total])
-			case int:
-				numero(n, i, float64(x), map[bool]uint16{false: xfInteiro, true: xfNegritoInteiro}[total])
-			case time.Time:
-				numero(n, i, serialExcel(x), xfData)
-			default:
-				if t := Texto(v, T); t != "" {
-					label(n, i, t, map[bool]uint16{false: 15, true: xfNegrito}[total])
-				}
-			}
-		}
-	}
-	for n, l := range r.Linhas {
-		linha(4+n, l, false)
-	}
-	if r.Total != nil {
-		linha(4+len(r.Linhas), r.Total, true)
-	}
-	s.rec(0x023E, uint16(0x06B6), uint16(0), uint16(0), uint32(0x40), uint16(0), uint16(0), uint32(0)) // WINDOW2
-	s.rec(0x000A)
-	wb := g.Bytes()
-	binary.LittleEndian.PutUint32(wb[posBound:], uint32(len(wb)))
-	wb = append(wb, s.Bytes()...)
-	return escreverCFB(w, wb)
-}
-
-// escreverCFB grava o fluxo "Workbook" num Compound File Binary (setores de 512 bytes).
-func escreverCFB(w io.Writer, fluxo []byte) error {
-	const setor = 512
-	tam := len(fluxo)
-	if len(fluxo) < 4096 { // evita o mini-stream
-		fluxo = append(fluxo, make([]byte, 4096-len(fluxo))...)
-		tam = 4096
-	}
-	nW := (len(fluxo) + setor - 1) / setor
-	fluxo = append(fluxo, make([]byte, nW*setor-len(fluxo))...)
-	nF := 1
-	for (nW+1+nF+127)/128 > nF {
-		nF++
-	}
-	if nF > 109 {
-		return errors.New("relatório grande demais para XLS — use XLSX ou CSV")
-	}
-	const fim, livre, fatSect, nada = 0xFFFFFFFE, 0xFFFFFFFF, 0xFFFFFFFD, 0xFFFFFFFF
-	dirSect := uint32(nW)
-	fat := make([]uint32, nF*128)
-	for i := range fat {
-		fat[i] = livre
-	}
-	for i := 0; i < nW; i++ {
-		fat[i] = uint32(i + 1)
-	}
-	fat[nW-1] = fim
-	fat[dirSect] = fim
-	for i := 0; i < nF; i++ {
-		fat[nW+1+i] = fatSect
-	}
-	var h bytes.Buffer
-	le := func(v any) { binary.Write(&h, binary.LittleEndian, v) }
-	h.Write([]byte{0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1})
-	h.Write(make([]byte, 16))
-	le(uint16(0x003E))
-	le(uint16(0x0003))
-	le(uint16(0xFFFE))
-	le(uint16(9))
-	le(uint16(6))
-	h.Write(make([]byte, 6))
-	le(uint32(0))
-	le(uint32(nF))
-	le(dirSect)
-	le(uint32(0))
-	le(uint32(0x1000))
-	le(uint32(fim))
-	le(uint32(0))
-	le(uint32(fim))
-	le(uint32(0))
-	for i := 0; i < 109; i++ {
-		if i < nF {
-			le(uint32(nW + 1 + i))
-		} else {
-			le(uint32(livre))
-		}
-	}
-	entrada := func(nome string, tipo uint8, filho, inicio uint32, tamanho uint32) {
-		u := utf16.Encode([]rune(nome))
-		n := make([]uint16, 32)
-		copy(n, u)
-		le(n)
-		if nome == "" {
-			le(uint16(0))
-		} else {
-			le(uint16((len(u) + 1) * 2))
-		}
-		le(tipo)
-		le(uint8(1))
-		le(uint32(nada))
-		le(uint32(nada))
-		le(filho)
-		h.Write(make([]byte, 16+4+8+8))
-		le(inicio)
-		le(tamanho)
-		le(uint32(0))
-	}
-	if _, err := w.Write(h.Bytes()); err != nil {
-		return err
-	}
-	if _, err := w.Write(fluxo); err != nil {
-		return err
-	}
-	h.Reset()
-	entrada("Root Entry", 5, 1, fim, 0)
-	entrada("Workbook", 2, nada, 0, uint32(tam))
-	entrada("", 0, nada, 0, 0)
-	entrada("", 0, nada, 0, 0)
-	le(fat)
-	_, err := w.Write(h.Bytes())
-	return err
 }

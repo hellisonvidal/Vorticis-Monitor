@@ -28,7 +28,7 @@ Programa para Windows de **consulta e monitoramento de documentos fiscais**: NF-
 | `internal/regras` | Motor de regras + cálculos (DIFAL, MVA ajustada, ICMS-ST, retenções) |
 | `internal/sefaz` | Certificado A1 (PFX), webservices por UF, SOAP 1.2 mTLS, Distribuição DF-e, Consulta Protocolo, Status Serviço, Manifestação com XMLDSig |
 | `internal/servicos` | Orquestração: ingestão, devolução, captura DF-e, consulta de situação, manifestação, agendador, hub SSE/webhooks, máquina de estados |
-| `internal/relatorios` | DANFE/DACTE/DAMDFE/DANFSe em PDF (com Code 128), exportação ZIP dos documentos selecionados e relatórios em PDF/XLSX/XLS (BIFF8)/CSV (`GET /api/v1/relatorios/{id}?formato=`) |
+| `internal/relatorios` | DANFE/DACTE/DAMDFE/DANFSe em PDF (com Code 128), exportação ZIP dos documentos selecionados e relatórios em PDF/XLSX/CSV (`GET /api/v1/relatorios/{id}?formato=`) |
 | `internal/cadastro` | Cadastro da empresa pelo CNPJ: Receita Federal (BrasilAPI/CNPJ.ws/ReceitaWS) e IE (Sintegra via CNPJ.ws e SEFAZ CadConsultaCadastro4 com certificado) |
 | `internal/store` | Persistência (esquema relacional) |
 | `internal/api` | REST, autenticação (PBKDF2 + token HMAC, API-Key), perfis |
@@ -182,7 +182,7 @@ Mapeamento `cStat → status` em `servicos.StatusPorCStat`; transições validad
 | Duplicidade 204/539 | cStat | consulta pela chave recupera o protocolo existente |
 | NFS-e Nacional (ADN) | NFS-e | `NFSE_ADN` em `nsu_controle`; páginas de até 50 itens; 404/lote vazio ⇒ próxima consulta após o intervalo; 429 ⇒ respeita `Retry-After` (mín. 30 min); 401/403 ⇒ certificado sem procuração/vínculo. Com procuração (`empresa.nfse_modo = PROCURACAO`), usa o certificado da tabela `procurador` e `cnpjConsulta` = CNPJ da empresa |
 | NF-e do contador (autXML) | NF-e | `NFE_AUTXML` em `nsu_controle` com `empresa_id = -procurador.id`; Distribuição DF-e com o CPF/CNPJ e a UF do procurador; mesmas regras de 1 h/656; importa só documentos com emitente/destinatário cadastrado |
-| Consumo indevido 656 / nada novo 137 | DF-e | `proxima_consulta = agora + intervalo` (mín. 60 min, padrão 65); sempre usa `ultNSU`; "Buscar agora" não fura a espera. 656 sem consulta própria na última hora ⇒ `concorrente = 1` (outro sistema usa o CNPJ): intervalo mínimo de 2 h + folga aleatória; 656 repetido amplia a espera até 3 h |
+| Consumo indevido 656 / nada novo 137 | DF-e | `proxima_consulta = agora + intervalo` (mín. 60 min, padrão 65); sempre usa `ultNSU`; o botão Consultar (que dispara a busca) não fura a espera. 656 sem consulta própria na última hora ⇒ `concorrente = 1` (outro sistema usa o CNPJ): intervalo mínimo de 2 h + folga aleatória; 656 repetido amplia a espera até 3 h |
 | Certificado ausente/vencido | cadastro / uso | aviso na tela; chamadas à SEFAZ bloqueadas até incluir certificado válido |
 | Certificado de outro CNPJ | upload | recusa (evita rejeição 213) |
 | Provedor de CNPJ indisponível | consulta de cadastro | fallback BrasilAPI → CNPJ.ws → ReceitaWS; IE pela SEFAZ com certificado |
@@ -205,7 +205,7 @@ Autenticação: `Authorization: Bearer <token>` (login) ou `X-API-Key` (ERP, per
 | GET | `/documentos?de&ate&status&modelo&direcao&q&pagina` | Consulta de documentos por período (todas as telas usam `de`/`ate`) |
 | POST | `/documentos/importar` | XML/ZIP (multipart ou corpo) |
 | GET | `/documentos/{chave}` · `/xml` · `/pdf` · `/ocorrencias` · `/eventos` | Detalhe, XML, PDF (DANFE), conferência fiscal, eventos |
-| POST | `/documentos/exportar` | ZIP dos documentos selecionados: `{chaves:[…], formato: xml\|pdf\|ambos}` |
+| POST | `/documentos/exportar` | ZIP dos documentos selecionados: `{chaves:[…], formato: xml\|pdf\|ambos}`; sem chaves e com filtro na URL (`?de=&ate=&modelo=…`) exporta todos os documentos do filtro |
 | GET | `/cadastro/cnpj/{cnpj}` | Dados da Receita + IEs (Sintegra/SEFAZ) para cadastrar a empresa só com o CNPJ |
 | POST | `/cadastro/certificado` | Lê o e-CNPJ (multipart `arquivo`, `senha`) e consulta Receita + SEFAZ da UF |
 | GET | `/documentos/{chave}/correcoes` | Correções sugeridas (patches campo/valor) |
@@ -220,7 +220,8 @@ Autenticação: `Authorization: Bearer <token>` (login) ou `X-API-Key` (ERP, per
 | GET/POST | `/pedidos-compra` · GET `/conciliacoes` | Compras |
 | GET/PUT | `/parametros/uf` · GET/POST/DELETE `/parametros/mva` · POST `/parametros/ncm` | Parâmetros fiscais |
 | GET/POST/DELETE | `/integracoes/webhooks` | Webhooks (HMAC-SHA256) |
-| GET/POST | `/usuarios` · GET `/auditoria` · GET/PUT `/config` | Administração |
+| GET/POST | `/usuarios` · PUT/DELETE `/usuarios/{id}` · GET `/auditoria` · GET/PUT `/config` | Administração (usuários: nome, perfil, ativo, redefinir senha; mantém ao menos um administrador ativo) |
+| GET / POST | `/auth/eu` · `/auth/senha` | Usuário da sessão e troca da própria senha (qualquer perfil) |
 
 
 Exemplo — pré-validação no ERP antes de transmitir:

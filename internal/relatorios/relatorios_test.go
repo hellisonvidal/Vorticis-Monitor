@@ -22,13 +22,13 @@ func TestFormatos(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		if _, ok := Formatos["xls"]; ok {
+			t.Fatal("o formato Excel 97-2003 (xls) foi descontinuado")
+		}
 		for f := range Formatos {
 			var b bytes.Buffer
 			if err := r.Escrever(&b, f); err != nil || b.Len() == 0 {
 				t.Fatalf("%s/%s: %v", id, f, err)
-			}
-			if f == "xls" && (!bytes.HasPrefix(b.Bytes(), []byte{0xD0, 0xCF, 0x11, 0xE0}) || b.Len()%512 != 0) {
-				t.Fatalf("xls inválido")
 			}
 		}
 	}

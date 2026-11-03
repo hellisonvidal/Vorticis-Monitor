@@ -40,10 +40,10 @@ const MENU = [
   { v: "transporte", t: "Transporte", i: "transporte", sub: "CT-e e MDF-e — emitidos e recebidos" },
   { v: "documentos", t: "Todos os documentos", i: "docs", sub: "Consulta geral de documentos fiscais" },
   { grupo: "Análise" },
-  { v: "relatorios", t: "Relatórios", i: "relatorio", sub: "Relatórios do período em PDF, Excel (XLSX/XLS) e CSV" },
+  { v: "relatorios", t: "Relatórios", i: "relatorio", sub: "Relatórios do período em PDF, Excel (XLSX) e CSV" },
   { grupo: "Cadastros" },
-  { v: "empresas", t: "Empresas", i: "empresa", sub: "Empresas monitoradas e certificados digitais" },
-  { v: "config", t: "Configurações", i: "config", sub: "Usuários, parâmetros e integração" },
+  { v: "empresas", t: "Empresas", i: "empresa", sub: "Empresas e filiais monitoradas e certificados digitais" },
+  { v: "config", t: "Configurações", i: "config", sub: "Usuários, parâmetros e integração", admin: true },
 ];
 
 const hoje = new Date();
@@ -106,7 +106,7 @@ async function iniciar() {
     $("#login-sub").textContent = "Primeiro acesso: crie o usuário administrador do programa"; $("#btn-login").textContent = "Criar administrador";
     $("#form-login").dataset.setup = "1"; $("#lembrar-campos").classList.add("hidden"); return;
   }
-  if (estado.token) { try { await carregarEmpresas(); entrar(); return; } catch { estado.token = ""; } }
+  if (estado.token) { try { await carregarEmpresas(); await entrar(); return; } catch { estado.token = ""; } }
   prepararLogin();
   if (LS.get("vtx_cred") && LS.get("vtx_auto") && !sessionStorage.getItem("vtx_saiu")) {
     try { await autenticar({ credencial: LS.get("vtx_cred") }, true, true); return; } catch (er) { $("#login-erro").textContent = er.message; }
@@ -118,8 +118,8 @@ async function autenticar(corpo, lembrar, auto, setup) {
   estado.token = r.token; LS.set("vtx_token", r.token); sessionStorage.removeItem("vtx_saiu");
   if (lembrar && r.credencial) { LS.set("vtx_cred", r.credencial); LS.set("vtx_login", r.usuario?.login || corpo.login); LS.set("vtx_auto", auto ? "1" : ""); }
   else if (!setup) ["vtx_cred", "vtx_auto", "vtx_login"].forEach(k => LS.set(k, ""));
-  $("#login").classList.add("hidden"); await carregarEmpresas(); entrar();
-  if (!estado.empresas.length) { mostrar("empresas"); novaEmpresa(); }
+  $("#login").classList.add("hidden"); await carregarEmpresas(); await entrar();
+  if (!estado.empresas.length && ehAdmin()) { mostrar("empresas"); novaEmpresa(); }
 }
 $("#form-login").onsubmit = async ev => {
   ev.preventDefault();
@@ -135,9 +135,14 @@ $("#sair").onclick = sair;
 $("#recolher").onclick = () => { $("#side").classList.toggle("mini"); localStorage.setItem("vtx_mini", $("#side").classList.contains("mini") ? "1" : ""); };
 if (localStorage.getItem("vtx_mini")) $("#side").classList.add("mini");
 
-function entrar() {
+const ehAdmin = () => estado.eu?.perfil === "ADMIN";
+const podeAlterar = () => ["ADMIN", "FISCAL"].includes(estado.eu?.perfil);
+async function entrar() {
+  estado.eu = await api("/auth/eu").catch(() => ({ perfil: "ADMIN" }));
   $("#app").classList.remove("hidden");
-  $("#menu").innerHTML = MENU.map(m => m.grupo ? `<div class="grupo">${m.grupo}</div>` : `<a data-v="${m.v}" title="${m.t}">${svg(m.i)}<span>${m.t}</span></a>`).join("");
+  $("#eu-nome").textContent = estado.eu.nome || estado.eu.login || "";
+  if (MENU.find(m => m.v === estado.view)?.admin && !ehAdmin()) estado.view = "painel";
+  $("#menu").innerHTML = MENU.filter(m => !m.admin || ehAdmin()).map(m => m.grupo ? `<div class="grupo">${m.grupo}</div>` : `<a data-v="${m.v}" title="${m.t}">${svg(m.i)}<span>${m.t}</span></a>`).join("");
   $$("#menu a").forEach(a => a.onclick = () => { estado.pagina = 1; estado.status = ""; estado.modelo = ""; estado.busca = ""; mostrar(a.dataset.v); });
   conectarSSE(); mostrar(estado.view);
 }
@@ -211,21 +216,52 @@ function filtroHTML(extras = "", compacto) {
     <button class="btn primary" id="f-ok">${svg("busca")} Consultar</button>
   </div>`;
 }
+// O botão azul "Consultar" concentra todas as ações da tela: busca as notas novas
+// na SEFAZ / Ambiente Nacional (conforme a tela) e depois consulta o período.
+const SINCRONIZA = { painel: ["nfe", "nfse"], documentos: ["nfe", "nfse"], nfe: ["nfe"], servicos: ["nfse"] };
 function ligarFiltro(el, extrasLer) {
-  const aplicar = async () => {
+  const aplicar = async (comBusca) => {
     estado.de = $("#f-de", el).value; estado.ate = $("#f-ate", el).value;
     if (!estado.de || !estado.ate) { toast("Informe a data inicial e a final", "var(--er)"); return; }
     if (estado.de > estado.ate) { toast("A data inicial é posterior à final", "var(--er)"); return; }
     if (extrasLer) extrasLer();
-    const b = $("#f-ok", el); b.disabled = true; b.textContent = "Consultando…";
+    const b = $("#f-ok", el); b.disabled = true;
+    if (comBusca === true && SINCRONIZA[estado.view] && podeAlterar()) { b.textContent = estado.view === "servicos" ? "Buscando no Ambiente Nacional…" : "Buscando na SEFAZ…"; await sincronizar(SINCRONIZA[estado.view]); }
+    b.textContent = "Consultando…";
     estado.pagina = 1; estado.total = undefined;
     await mostrar(estado.view, true);
     if (estado.total !== undefined) toast(`Consulta concluída: <b>${estado.total}</b> ${estado.view === "relatorios" ? "linha(s)" : "documento(s)"} de ${dia(estado.de + "T12:00")} a ${dia(estado.ate + "T12:00")}`, "var(--ok)");
   };
   $$(".presets button", el).forEach(b => b.onclick = () => { [estado.de, estado.ate] = PRESETS[b.dataset.p](); estado.preset = b.dataset.p; $("#f-de", el).value = estado.de; $("#f-ate", el).value = estado.ate; aplicar(); });
   $("#f-de", el).onchange = $("#f-ate", el).onchange = () => { estado.preset = ""; };
-  $("#f-ok", el).onclick = aplicar;
-  $$(".filtros input:not([type=date])", el).forEach(i => i.onkeydown = e => { if (e.key === "Enter") aplicar(); });
+  $("#f-ok", el).onclick = () => aplicar(true);
+  $$(".filtros input:not([type=date])", el).forEach(i => i.onkeydown = e => { if (e.key === "Enter") aplicar(true); });
+}
+// Busca as notas novas de cada empresa do filtro: NF-e (Distribuição DF-e, inclusive
+// pelo certificado do contador — autXML) e NFS-e (ADN). Respeita a regra de 1 hora da SEFAZ.
+async function sincronizar(tipos) {
+  const emps = estado.empresas.filter(e => e.ativo !== false && (!estado.empresa || String(e.id) === estado.empresa));
+  const tarefas = [];
+  const pedir = (rot, nome, url) => tarefas.push(api(url, { method: "POST", tempo: 240000 }).then(r => ({ rot, nome, r })).catch(er => ({ rot, nome, er })));
+  if (tipos.includes("nfe")) {
+    emps.filter(e => e.tem_certificado).forEach(e => pedir("NF-e", e.razao_social, `/captura/${e.id}/executar?forcar=1`));
+    const procs = await api("/procuradores").catch(() => []);
+    procs.filter(p => p.nfe_autxml && p.uf).forEach(p => pedir("NF-e (autXML)", p.nome, `/procuradores/${p.id}/nfe?forcar=1`));
+  }
+  if (tipos.includes("nfse"))
+    emps.filter(e => e.tem_certificado || (e.nfse_modo === "PROCURACAO" && e.nfse_procurador_id)).forEach(e => pedir("NFS-e", e.razao_social, `/captura/${e.id}/nfse?forcar=1`));
+  if (!tarefas.length) return;
+  const res = await Promise.all(tarefas);
+  let novos = 0; const erros = [], avisos = [];
+  for (const x of res) {
+    if (x.er) { erros.push(`<b>${esc(x.nome)}</b> · ${x.rot}: ${esc(x.er.message)}`); continue; }
+    novos += x.r.documentos || 0;
+    if (x.r.ignorado || x.r.c_stat === 656 || x.r.c_stat === 429 || [401, 403].includes(x.r.c_stat) || (x.rot === "NFS-e" && x.r.c_stat >= 400 && x.r.c_stat !== 404))
+      avisos.push(`<b>${esc(x.nome)}</b> · ${x.rot}: ${esc(x.r.motivo)}`);
+  }
+  toast(novos ? `<b>${novos}</b> documento(s) novo(s) baixado(s)` : "Nenhum documento novo na SEFAZ / Ambiente Nacional", novos ? "var(--ok)" : "");
+  if (avisos.length) toast(avisos.join("<br>"), "var(--wa)");
+  if (erros.length) toast(erros.join("<br>"), "var(--er)");
 }
 function qsBase(extra = {}) {
   const q = new URLSearchParams({ de: estado.de, ate: estado.ate, ...extra });
@@ -286,13 +322,14 @@ function atualizarSelecao() {
   const n = estado.sel.size, b = $("#selecao");
   b.classList.toggle("hidden", !n || !VIEWS_DOC.includes(estado.view));
   $("#sel-qtd").textContent = `${n} documento${n > 1 ? "s" : ""} selecionado${n > 1 ? "s" : ""}`;
+  const lr = $("#lote-rot"); if (lr) lr.textContent = n ? `Lote: ${n} selecionado(s)` : `Lote: todos os ${estado.total ?? ""} do filtro`;
 }
 $("#sel-limpar").onclick = () => { estado.sel.clear(); mostrar(estado.view, true); };
 $$("#selecao [data-exp]").forEach(b => b.onclick = () => exportar([...estado.sel], b.dataset.exp));
 async function exportar(chaves, formato) {
   if (!chaves.length) return;
   toast(`Gerando arquivo com ${chaves.length} documento(s)…`);
-  try { await baixar(await api("/documentos/exportar", { method: "POST", json: { chaves, formato }, blob: true }), "documentos.zip"); toast("Exportação concluída — arquivo salvo em Downloads", "var(--ok)"); }
+  try { await baixar(await api("/documentos/exportar", { method: "POST", json: { chaves, formato }, blob: true, tempo: 30 * 60000 }), "documentos.zip"); toast("Exportação concluída — arquivo salvo em Downloads", "var(--ok)"); }
   catch (e) { toast(esc(e.message), "var(--er)"); }
 }
 
@@ -321,8 +358,10 @@ async function consultaDocs(el, fixo, opts = {}) {
   const antes = opts.antesSempre ? await opts.antesSempre() : recebidos && opts.antesRecebidos ? await opts.antesRecebidos() : "";
   const pags = Math.max(1, Math.ceil(d.total / 50));
   el.innerHTML = seg + antes + filtroHTML(extras) + `
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><span class="muted">${d.total} documento(s) entre ${dia(estado.de + "T12:00")} e ${dia(estado.ate + "T12:00")}</span>
-  ${d.total ? `<button class="btn sm" id="sel-filtro">Selecionar todos os ${d.total}</button>` : ""}</div>
+  <div class="lote"><span class="muted">${d.total} documento(s) entre ${dia(estado.de + "T12:00")} e ${dia(estado.ate + "T12:00")}</span>
+  ${d.total ? `<div class="lote-acoes"><button class="btn sm" id="sel-filtro">Selecionar todos os ${d.total}</button>
+    <span class="lote-rot" id="lote-rot">${estado.sel.size ? `Lote: ${estado.sel.size} selecionado(s)` : `Lote: todos os ${d.total} do filtro`}</span>
+    <button class="btn sm" data-lote="xml">${svg("xml")} XML em lote</button><button class="btn sm" data-lote="pdf">${svg("pdf")} PDF em lote</button><button class="btn sm primary" data-lote="ambos">XML + PDF</button></div>` : ""}</div>
   ${gridDocs(d.itens, true, gopts)}
   <div class="paginacao"><button class="btn sm" ${estado.pagina <= 1 ? "disabled" : ""} id="pg-ant">‹ Anterior</button><span class="muted">Página ${estado.pagina} de ${pags}</span><button class="btn sm" ${estado.pagina >= pags ? "disabled" : ""} id="pg-prox">Próxima ›</button></div>`;
   $$(".seg button", el).forEach(b => b.onclick = () => { estado.direcao = b.dataset.d; estado.pagina = 1; mostrar(estado.view, true); });
@@ -331,7 +370,20 @@ async function consultaDocs(el, fixo, opts = {}) {
   $("#pg-ant").onclick = () => { estado.pagina--; mostrar(estado.view, true); };
   $("#pg-prox").onclick = () => { estado.pagina++; mostrar(estado.view, true); };
   const sf = $("#sel-filtro");
-  if (sf) sf.onclick = async () => { q.set("por_pagina", 5000); q.set("pagina", 1); const all = await api("/documentos?" + q); all.itens.forEach(x => estado.sel.add(x.chave)); mostrar(estado.view, true); };
+  if (sf) sf.onclick = async () => { const qa = new URLSearchParams(q); qa.set("por_pagina", 5000); qa.set("pagina", 1); const all = await api("/documentos?" + qa); all.itens.forEach(x => estado.sel.add(x.chave)); mostrar(estado.view, true); };
+  $$("[data-lote]", el).forEach(b => b.onclick = () => exportarLote(b.dataset.lote, q, d.total, b));
+}
+// Gera XML e/ou PDF em lote (ZIP): os documentos selecionados ou, sem seleção, todos os do filtro.
+async function exportarLote(formato, q, total, btn) {
+  if (estado.sel.size) return exportar([...estado.sel], formato);
+  if (!total) return;
+  if (total > 1000 && formato !== "xml" && !confirm(`Gerar o PDF de ${total} documentos pode levar alguns minutos. Continuar?`)) return;
+  const qf = new URLSearchParams(q); qf.delete("por_pagina"); qf.delete("pagina");
+  const txt = btn?.innerHTML; if (btn) { btn.disabled = true; btn.textContent = "Gerando…"; }
+  toast(`Gerando arquivo com ${total} documento(s)…`);
+  try { await baixar(await api("/documentos/exportar?" + qf, { method: "POST", json: { formato }, blob: true, tempo: 30 * 60000 }), "documentos.zip"); toast("Exportação concluída — arquivo salvo em Downloads", "var(--ok)"); }
+  catch (e) { toast(esc(e.message), "var(--er)"); }
+  if (btn) { btn.disabled = false; btn.innerHTML = txt; }
 }
 VIEWS.nfe = el => consultaDocs(el, { modelo: "NFE,NFCE" }, { modelos: ["NFE", "NFCE"], rotulos: ["Emitidas", "Recebidas"], manif: true, antesRecebidos: cardsCaptura });
 VIEWS.servicos = el => consultaDocs(el, { modelo: "NFSE" }, { rotulos: ["Prestadas (emitidas)", "Tomadas (recebidas)"], parteS: "Tomador", parteE: "Prestador", antesSempre: cardsNFSe });
@@ -345,18 +397,12 @@ async function cardsNFSe() {
     const n = nsu.find(x => x.empresa_id === e.id && x.servico === "NFSE_ADN") || {};
     const pr = e.nfse_modo === "PROCURACAO" ? procs.find(p => p.id === e.nfse_procurador_id) : null;
     const pode = pr || e.tem_certificado;
-    const via = pr ? `Procuração eletrônica · certificado de <b>${esc(pr.nome)}</b>` : e.nfse_modo === "PROCURACAO" ? `<span style="color:var(--er)">Procuração sem procurador escolhido</span>` : e.tem_certificado ? "Certificado da própria empresa" : "Sem certificado — inclua o certificado ou use procuração do contador";
+    const via = pr ? `Procuração eletrônica · certificado de <b>${esc(pr.nome)}</b>` : e.nfse_modo === "PROCURACAO" ? `<span style="color:var(--er)">Procuração sem procurador escolhido</span>` : e.cert_proprio ? "Certificado da própria empresa" : e.tem_certificado ? `Certificado da matriz ${esc(e.cert_empresa)}` : "Sem certificado — inclua o certificado ou use procuração do contador";
     return `<div class="card" style="display:flex;gap:14px;align-items:center">
       <div class="kpi"><div class="ic ${!pode ? "c-wa" : [401, 403].includes(n.ultimo_c_stat) ? "c-er" : "c-pr"}">${svg(pr ? "chave" : "servico")}</div></div>
       <div style="flex:1"><b>${esc(e.razao_social)}</b><div class="doc-sub">NFS-e Nacional (ADN) · ${via}<br>Última consulta: ${dt(n.ultima_consulta) || "ainda não realizada"}${n.proxima_consulta ? ` · próxima: ${dt(n.proxima_consulta)}` : ""}${n.ultimo_motivo ? `<br>${esc(n.ultimo_motivo)}` : ""}</div></div>
-      ${pode ? `<button class="btn sm" onclick="capturarNFSe(${e.id}, this)">Buscar agora</button>` : `<button class="btn sm" onclick='editarEmpresa(${JSON.stringify(e).replace(/'/g, "&#39;")})'>Configurar</button>`}</div>`;
+      ${pode || !ehAdmin() ? "" : `<button class="btn sm" onclick='editarEmpresa(${JSON.stringify(e).replace(/'/g, "&#39;")})'>Configurar</button>`}</div>`;
   }).join("")}</div>`;
-}
-async function capturarNFSe(id, btn) {
-  if (btn) { btn.disabled = true; btn.textContent = "Consultando ADN…"; }
-  try { const r = await api(`/captura/${id}/nfse?forcar=1`, { method: "POST" }); toast(esc(r.motivo), r.ignorado || r.c_stat >= 400 ? "var(--wa)" : "var(--ok)"); }
-  catch (e) { toast(esc(e.message), "var(--er)"); }
-  mostrar(estado.view, true);
 }
 VIEWS.transporte = el => consultaDocs(el, { modelo: "CTE,MDFE" }, { modelos: ["CTE", "MDFE"] });
 VIEWS.documentos = el => consultaDocs(el, {}, { modelos: ["NFE", "NFCE", "CTE", "MDFE", "NFSE"] });
@@ -372,19 +418,14 @@ async function cardsCaptura() {
     const prox = n.proxima_consulta ? new Date(n.proxima_consulta) : null;
     const aguarda = prox && prox > agora && [137, 656].includes(n.ultimo_c_stat);
     const info = !e.tem_certificado ? "Inclua o certificado digital para baixar as notas destinadas à empresa"
-      : `Última consulta: ${dt(n.ultima_consulta || n.updated_at) || "ainda não realizada"}${prox ? ` · próxima: ${dt(n.proxima_consulta)}` : ""}${n.ultimo_motivo ? `<br>${n.ultimo_c_stat ? n.ultimo_c_stat + " · " : ""}${esc(n.ultimo_motivo)}` : ""}`;
+      : `${e.cert_proprio ? "" : `Certificado da matriz ${esc(e.cert_empresa)}<br>`}Última consulta: ${dt(n.ultima_consulta || n.updated_at) || "ainda não realizada"}${prox ? ` · próxima: ${dt(n.proxima_consulta)}` : ""}${n.ultimo_motivo ? `<br>${n.ultimo_c_stat ? n.ultimo_c_stat + " · " : ""}${esc(n.ultimo_motivo)}` : ""}`;
     return `<div class="card" style="display:flex;gap:14px;align-items:center">
     <div class="kpi"><div class="ic ${!e.tem_certificado ? "c-wa" : n.ultimo_c_stat === 656 ? "c-er" : "c-pr"}">${svg(e.tem_certificado ? "entrada" : "chave")}</div></div>
     <div style="flex:1"><b>${esc(e.razao_social)}</b><div class="doc-sub">${info}</div>
     ${n.concorrente ? `<div class="aviso" style="margin:8px 0 0">Outro sistema também consulta este CNPJ na SEFAZ (ex.: outro monitor de notas). O intervalo foi ampliado para no mínimo 2 horas para evitar bloqueio por consumo indevido (656).</div>` : ""}</div>
-    ${e.tem_certificado ? `<button class="btn sm" onclick="capturar(${e.id}, this)" ${aguarda ? `disabled title="A SEFAZ só libera nova consulta após ${dt(n.proxima_consulta)}"` : ""}>Buscar agora</button>` : `<button class="btn sm" onclick="mostrar('empresas')">Incluir certificado</button>`}</div>`;
+    ${aguarda ? `<span class="st PENDENTE" title="A SEFAZ só libera nova consulta após ${dt(n.proxima_consulta)}">aguardando SEFAZ</span>` : ""}
+    ${!e.tem_certificado && ehAdmin() ? `<button class="btn sm" onclick="mostrar('empresas')">Incluir certificado</button>` : ""}</div>`;
   }).join("")}</div>`;
-}
-async function capturar(id, btn) {
-  if (btn) { btn.disabled = true; btn.textContent = "Consultando SEFAZ…"; }
-  try { const r = await api(`/captura/${id}/executar?forcar=1`, { method: "POST" }); toast(r.ignorado ? esc(r.motivo) : `${r.documentos} documento(s) recebido(s) · ${esc(r.motivo)}`, r.ignorado || r.c_stat === 656 ? "var(--wa)" : "var(--ok)"); }
-  catch (e) { toast(esc(e.message), "var(--er)"); }
-  mostrar(estado.view, true);
 }
 
 /* ---------- Relatórios ---------- */
@@ -406,28 +447,31 @@ VIEWS.relatorios = async el => {
   el.innerHTML = filtroHTML(extras, true) + `<div class="rel-tipos">${cat.map(c => `<a data-r="${c.id}" class="${estado.rel === c.id ? "on" : ""}" title="${esc(c.descricao)}">${esc(c.nome)}</a>`).join("")}</div>
     <div class="card rel-prev"><div class="rel-topo">
       <div><h3 style="margin:0">${esc(rel.titulo)}</h3><div class="doc-sub">${esc(rel.filtros)} · ${rel.linhas.length} linha(s) · ${rel.colunas.length} de ${resp.disponiveis.length} campos</div></div>
-      <div class="acoes" style="margin:0"><div class="campos-wrap"><button class="btn sm" id="bt-campos">${svg("config")} Campos</button>
-        <div class="campos hidden" id="campos"><div class="campos-cab"><b>Campos exibidos</b><span><a data-c="todos">Todos</a> · <a data-c="padrao">Padrão</a></span></div>
-        ${resp.disponiveis.map((c, i) => `<label><input type="checkbox" value="${i}" ${selec.has(i) ? "checked" : ""}> ${esc(c.titulo)}</label>`).join("")}
-        <button class="btn sm primary" id="campos-ok">Aplicar</button></div></div>
-      ${[["pdf", "PDF"], ["xlsx", "Excel (XLSX)"], ["xls", "Excel 97-2003 (XLS)"], ["csv", "CSV"]].map(([f, l]) => `<button class="btn sm ${f === "pdf" ? "primary" : ""}" data-f="${f}">${svg(f === "pdf" ? "pdf" : "docs")} ${l}</button>`).join("")}</div></div>
-      <div class="tbl" style="margin-top:14px"><table><thead><tr>${rel.colunas.map(c => `<th class="${"MN".includes(c.tipo) ? "n" : ""}">${esc(c.titulo)}</th>`).join("")}</tr></thead><tbody>
+      <div class="acoes" style="margin:0"><button class="btn sm ${estado.camposAbertos ? "on" : ""}" id="bt-campos">${svg("config")} Campos (${rel.colunas.length}/${resp.disponiveis.length})</button>
+      ${[["pdf", "PDF"], ["xlsx", "Excel (XLSX)"], ["csv", "CSV"]].map(([f, l]) => `<button class="btn sm ${f === "pdf" ? "primary" : ""}" data-f="${f}">${svg(f === "pdf" ? "pdf" : "docs")} ${l}</button>`).join("")}</div></div>
+      <div class="campos-painel ${estado.camposAbertos ? "" : "hidden"}" id="campos">
+        <div class="campos-cab"><div><b>Campos do relatório</b><div class="doc-sub">Desmarque os campos que não quer no relatório (vale para a tela, PDF, Excel e CSV). A escolha fica salva para este relatório.</div></div>
+        <span><a data-c="todos">Marcar todos</a> · <a data-c="padrao">Padrão</a></span></div>
+        <div class="campos-lista">${resp.disponiveis.map((c, i) => `<label class="campo ${selec.has(i) ? "on" : ""}"><input type="checkbox" value="${i}" ${selec.has(i) ? "checked" : ""}> ${esc(c.titulo)}</label>`).join("")}</div>
+        <div class="acoes" style="margin:10px 0 0"><button class="btn sm primary" id="campos-ok">Aplicar campos</button><button class="btn sm" id="campos-fechar">Fechar</button></div></div>
+      <div class="tbl" style="margin-top:14px"><table><thead><tr>${rel.colunas.map((c, j) => `<th class="${"MN".includes(c.tipo) ? "n" : ""}">${esc(c.titulo)}${rel.colunas.length > 1 ? `<a class="tira" data-tira="${resp.selecionadas[j]}" title="Tirar o campo ${esc(c.titulo)} do relatório">×</a>` : ""}</th>`).join("")}</tr></thead><tbody>
       ${lim.map(l => `<tr>${l.map((v, i) => `<td class="${"MN".includes(rel.colunas[i].tipo) ? "n" : ""}">${fmtCel(v, rel.colunas[i].tipo)}</td>`).join("")}</tr>`).join("") || `<tr><td colspan="${rel.colunas.length}" class="muted">Nenhum registro no período e filtros informados.</td></tr>`}
       ${rel.total ? `<tr class="total">${rel.total.map((v, i) => `<td class="${"MN".includes(rel.colunas[i].tipo) ? "n" : ""}">${fmtCel(v, rel.colunas[i].tipo)}</td>`).join("")}</tr>` : ""}</tbody></table></div>
       ${rel.linhas.length > lim.length ? `<p class="muted">Pré-visualização das primeiras ${lim.length} linhas — o arquivo exportado contém todas.</p>` : ""}</div>`;
   const ajustar = () => { const t = $(".rel-prev .tbl", el); if (!t || !t.isConnected) { window.removeEventListener("resize", ajustar); return; } t.style.maxHeight = Math.max(220, window.innerHeight - t.getBoundingClientRect().top - (rel.linhas.length > lim.length ? 48 : 22)) + "px"; };
   ajustar(); window.addEventListener("resize", ajustar);
   const cx = $("#campos", el);
-  $("#bt-campos", el).onclick = e => { e.stopPropagation(); cx.classList.toggle("hidden"); };
-  cx.onclick = e => e.stopPropagation();
-  document.addEventListener("click", () => cx.classList.add("hidden"), { once: true });
-  $$("[data-c]", cx).forEach(a => a.onclick = () => $$("input", cx).forEach((i, n) => i.checked = a.dataset.c === "todos" || resp.disponiveis[n].padrao));
-  $("#campos-ok", cx).onclick = () => {
-    const v = $$("input:checked", cx).map(i => i.value);
+  $("#bt-campos", el).onclick = () => { estado.camposAbertos = cx.classList.toggle("hidden") ? false : true; $("#bt-campos", el).classList.toggle("on", estado.camposAbertos); ajustar(); };
+  $("#campos-fechar", cx).onclick = () => { estado.camposAbertos = false; cx.classList.add("hidden"); $("#bt-campos", el).classList.remove("on"); ajustar(); };
+  $$("input", cx).forEach(i => i.onchange = () => i.parentElement.classList.toggle("on", i.checked));
+  $$("[data-c]", cx).forEach(a => a.onclick = () => $$("input", cx).forEach((i, n) => { i.checked = a.dataset.c === "todos" || resp.disponiveis[n].padrao; i.parentElement.classList.toggle("on", i.checked); }));
+  const gravarCampos = v => {
     if (!v.length) { toast("Escolha pelo menos um campo", "var(--er)"); return; }
     const padrao = resp.disponiveis.map((c, i) => c.padrao ? String(i) : null).filter(x => x !== null).join(",");
     LS.set("vtx_rel_" + estado.rel, v.join(",") === padrao ? "" : v.join(",")); mostrar("relatorios", true);
   };
+  $("#campos-ok", cx).onclick = () => gravarCampos($$("input:checked", cx).map(i => i.value));
+  $$("[data-tira]", el).forEach(a => a.onclick = () => gravarCampos(resp.selecionadas.map(String).filter(i => i !== a.dataset.tira)));
   ligarFiltro(el, () => { rf.direcao = $("#r-dir").value; rf.modelo = $("#r-mod").value; rf.status = $("#r-st").value; });
   $$(".rel-tipos a", el).forEach(a => a.onclick = () => { estado.rel = a.dataset.r; mostrar("relatorios", true); });
   $$("[data-f]", el).forEach(b => b.onclick = async () => {
@@ -477,7 +521,7 @@ async function acao(chave, a) {
   try { const r = await api(`/documentos/${chave}/${a}`, { method: "POST" }); toast(`SEFAZ: ${r.c_stat} ${esc(r.x_motivo)}`); abrirDoc(chave); }
   catch (e) { toast(esc(e.message), "var(--er)"); }
 }
-function modal(html) { $("#modal-body").innerHTML = html; $("#modal").classList.remove("hidden"); }
+function modal(html) { $("#modal-body").innerHTML = `<button type="button" class="btn icone modal-x" onclick="fecharModal()" title="Fechar (Esc)">${svg("x")}</button>` + html; $("#modal").classList.remove("hidden"); }
 function fecharModal() { $("#modal").classList.add("hidden"); }
 $("#modal").onclick = e => { if (e.target.id === "modal") fecharModal(); };
 document.addEventListener("keydown", e => { if (e.key === "Escape") { if (!$("#modal").classList.contains("hidden")) fecharModal(); else if (!$("#drawer").classList.contains("hidden")) fecharDrawer(); } });
@@ -492,17 +536,22 @@ function manifestar(chave) {
 /* ---------- Empresas ---------- */
 VIEWS.empresas = async el => {
   await carregarEmpresas();
-  el.innerHTML = `<div class="acoes" style="margin-top:0"><button class="btn primary" onclick="novaEmpresa()">${svg("mais")} Nova empresa</button></div>
-  ${estado.empresas.length ? `<div class="grid g2">${estado.empresas.map(e => `<div class="card">
+  const adm = ehAdmin();
+  // Agrupa por raiz do CNPJ: a matriz (/0001) primeiro e as filiais logo abaixo.
+  const raiz = e => (e.cnpj || "").slice(0, 8), ordem = [...estado.empresas].sort((a, b) => raiz(a).localeCompare(raiz(b)) || (b.matriz - a.matriz) || a.cnpj.localeCompare(b.cnpj));
+  const filiais = r => estado.empresas.filter(x => raiz(x) === r && !x.matriz).length;
+  el.innerHTML = `${adm ? `<div class="acoes" style="margin-top:0"><button class="btn primary" onclick="novaEmpresa()">${svg("mais")} Nova empresa</button></div>` : ""}
+  ${estado.empresas.length ? `<div class="grid g2">${ordem.map(e => `<div class="card ${e.matriz ? "" : "filial"}">
     <div style="display:flex;justify-content:space-between;gap:10px"><div><h3 style="margin:0">${esc(e.razao_social)}</h3><div class="doc-sub">${docFmt(e.cnpj)} · ${esc(e.uf)} · IE ${esc(e.ie || "não informada")}</div></div>
-    <span class="st ${e.ambiente === 1 ? "AUTORIZADA" : "PENDENTE"}">${e.ambiente === 1 ? "Produção" : "Homologação"}</span></div>
+    <div style="display:flex;gap:6px;align-items:flex-start;flex-wrap:wrap;justify-content:flex-end">${e.cnpj.length === 14 ? `<span class="st ${e.matriz ? "PENDENTE" : "CANCELADA"}">${e.matriz ? `Matriz${filiais(raiz(e)) ? ` · ${filiais(raiz(e))} filial(is)` : ""}` : "Filial"}</span>` : ""}<span class="st ${e.ambiente === 1 ? "AUTORIZADA" : "PENDENTE"}">${e.ambiente === 1 ? "Produção" : "Homologação"}</span></div></div>
     <div class="kv" style="margin-top:12px"><b>Regime</b><span>${esc({ LR: "Lucro Real", LP: "Lucro Presumido", SN: "Simples Nacional", MEI: "MEI" }[e.regime] || e.regime)}</span><b>Certificado</b><span id="cert-${e.id}" class="muted">verificando…</span></div>
-    <div class="acoes"><button class="btn sm" onclick='editarEmpresa(${JSON.stringify(e).replace(/'/g, "&#39;")})'>Editar</button><button class="btn sm" onclick="certificadoEmpresa(${e.id})">${e.tem_certificado ? "Substituir certificado" : "Incluir certificado"}</button>
-    ${e.tem_certificado ? `<button class="btn sm danger" onclick="removerCert(${e.id})">Remover certificado</button>` : ""}</div></div>`).join("")}</div>`
+    ${adm ? `<div class="acoes"><button class="btn sm" onclick='editarEmpresa(${JSON.stringify(e).replace(/'/g, "&#39;")})'>Editar</button><button class="btn sm" onclick="certificadoEmpresa(${e.id})">${e.cert_proprio ? "Substituir certificado" : e.tem_certificado ? "Incluir certificado próprio" : "Incluir certificado"}</button>
+    ${e.cert_proprio ? `<button class="btn sm danger" onclick="removerCert(${e.id})">Remover certificado</button>` : ""}
+    ${e.cnpj.length === 14 ? `<button class="btn sm" onclick="novaEmpresa('${raiz(e)}')">${svg("mais")} Incluir filial</button>` : ""}</div>` : ""}</div>`).join("")}</div>`
     : `<div class="card vazio">${svg("empresa")}<div>Nenhuma empresa cadastrada.</div><div style="font-size:12.5px">Informe apenas o CNPJ ou use o certificado digital: os dados são importados da Receita Federal e a IE da SEFAZ.</div></div>`}`;
   for (const e of estado.empresas) {
-    api(`/empresas/${e.id}/certificado`).then(c => $("#cert-" + e.id).innerHTML = `<span style="color:var(--tx)">${esc(c.titular)}</span><br>válido até ${dia(c.valido_ate)} (${c.dias_restantes} dias)`)
-      .catch(() => $("#cert-" + e.id).innerHTML = `<span class="st CONTINGENCIA">Sem certificado</span>`);
+    api(`/empresas/${e.id}/certificado`).then(c => $("#cert-" + e.id).innerHTML = `<span style="color:var(--tx)">${esc(c.titular)}</span><br>válido até ${dia(c.valido_ate)} (${c.dias_restantes} dias)${c.herdado_de ? `<br><span class="st PENDENTE" style="margin-top:4px">certificado da matriz</span> <span class="doc-sub">${esc(c.herdado_de)}</span>` : ""}`)
+      .catch(() => $("#cert-" + e.id).innerHTML = `<span class="st CONTINGENCIA">Sem certificado</span>${!e.matriz && e.usar_cert_matriz ? `<div class="doc-sub">Inclua o certificado na matriz ou nesta filial</div>` : ""}`);
   }
 };
 // Escolha do certificado: instalado no Windows (repositório do usuário) ou arquivo .pfx.
@@ -528,14 +577,16 @@ async function blocoCertificado(el, cnpjBase) {
 const certDoForm = f => f.get("impressao") ? { impressao: f.get("impressao") } : { arquivo: f.get("arquivo"), senha: f.get("senha") };
 function formCert(c) { const fd = new FormData(); for (const [k, v] of Object.entries(c)) fd.append(k, v); return fd; }
 let novaCert = null; // {arquivo, senha} escolhido no cadastro pelo certificado
-function novaEmpresa() {
+const cnpjRaizFmt = r => r.replace(/^(..)(...)(...)$/, "$1.$2.$3/");
+function novaEmpresa(raizFilial) {
   novaCert = null;
-  modal(`<h3>Nova empresa</h3><div class="passos"><button class="on" data-m="cnpj"><b>Pelo CNPJ</b><span class="muted">Dados da Receita Federal e IE pelo Sintegra/SEFAZ</span></button>
+  const mat = raizFilial ? estado.empresas.find(e => e.cnpj.startsWith(raizFilial) && e.matriz) || estado.empresas.find(e => e.cnpj.startsWith(raizFilial)) : null;
+  modal(`<h3>${raizFilial ? "Incluir filial" : "Nova empresa"}</h3>${raizFilial ? `<p class="muted" style="margin-top:-6px">Filial de <b>${esc(mat?.razao_social || "")}</b>. Complete o CNPJ da filial: os dados vêm da Receita e as consultas na SEFAZ e no Ambiente Nacional usam o certificado da matriz (mesma raiz de CNPJ) — não é preciso outro certificado.</p>` : ""}<div class="passos ${raizFilial ? "hidden" : ""}"><button class="on" data-m="cnpj"><b>Pelo CNPJ</b><span class="muted">Dados da Receita Federal e IE pelo Sintegra/SEFAZ</span></button>
   <button data-m="cert"><b>Pelo certificado digital</b><span class="muted">Lê o CNPJ do e-CNPJ e consulta a IE na SEFAZ</span></button></div><div id="nova-passo"></div><div id="nova-form"></div>`);
   const passo = m => {
     $$(".passos button").forEach(b => b.classList.toggle("on", b.dataset.m === m)); $("#nova-form").innerHTML = "";
     $("#nova-passo").innerHTML = m === "cnpj"
-      ? `<form id="fc" class="filtros" style="box-shadow:none"><label class="busca">CNPJ<input name="cnpj" placeholder="00.000.000/0000-00" required autofocus></label><button class="btn primary">${svg("busca")} Consultar</button></form>`
+      ? `<form id="fc" class="filtros" style="box-shadow:none"><label class="busca">CNPJ${raizFilial ? " da filial" : ""}<input name="cnpj" placeholder="00.000.000/0000-00" value="${raizFilial ? cnpjRaizFmt(raizFilial) : ""}" required autofocus></label><button class="btn primary">${svg("busca")} Consultar</button></form>`
       : `<form id="fc"><div id="cert-bloco"></div><div class="acoes"><button class="btn primary">${svg("chave")} Ler certificado</button></div></form>`;
     if (m === "cert") blocoCertificado($("#cert-bloco"));
     $("#fc").onsubmit = async ev => {
@@ -550,6 +601,7 @@ function novaEmpresa() {
     };
   };
   $$(".passos button").forEach(b => b.onclick = () => passo(b.dataset.m)); passo("cnpj");
+  if (raizFilial) { const i = $("#fc [name=cnpj]"); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }
 }
 function formEmpresa(el, d, cert, existente) {
   const ies = d.inscricoes || [];
@@ -569,6 +621,7 @@ function formEmpresa(el, d, cert, existente) {
     <label>Consulta de NFS-e Nacional<select name="nfse_modo" id="nfse-modo"><option value="PROPRIO">Certificado da própria empresa</option><option value="PROCURACAO" ${d.nfse_modo === "PROCURACAO" ? "selected" : ""}>Procuração eletrônica (certificado do contador)</option></select></label>
     <label id="nfse-proc-l" class="${d.nfse_modo === "PROCURACAO" ? "" : "hidden"}">Procurador<select name="nfse_procurador_id" id="nfse-proc"><option value="">Carregando…</option></select></label>
     <label>Buscar notas recebidas automaticamente<select name="captura_automatica"><option value="1">Sim</option><option value="" ${existente && !d.captura_automatica ? "selected" : ""}>Não</option></select></label>
+    ${String(d.cnpj || "").length === 14 && String(d.cnpj).slice(8, 12) !== "0001" ? `<label class="w2">Certificado da filial<select name="usar_cert_matriz"><option value="1">Usar o certificado da matriz (mesma raiz de CNPJ) quando a filial não tiver certificado próprio</option><option value="" ${existente && d.usar_cert_matriz === false ? "selected" : ""}>Somente certificado próprio da filial</option></select></label>` : ""}
   </div>${d.endereco || d.logradouro ? `<div class="doc-sub">${esc([d.logradouro, d.numero, d.bairro, d.municipio, d.uf, d.cep].filter(Boolean).join(", "))}</div>` : ""}
   <div class="acoes"><button class="btn primary">${existente ? "Salvar alterações" : "Cadastrar empresa"}</button><button type="button" class="btn" onclick="fecharModal()">Cancelar</button></div></form>`;
   const sel = $("#ie-sel"); if (sel) sel.onchange = () => { if (sel.value) $("#fe [name=ie]").value = sel.value; };
@@ -577,12 +630,14 @@ function formEmpresa(el, d, cert, existente) {
     : `<option value="">Nenhum procurador — cadastre em Configurações › Procuradores (contador)</option>`; }).catch(() => { });
   $("#fe").onsubmit = async ev => {
     ev.preventDefault(); const f = Object.fromEntries(new FormData(ev.target));
-    const corpo = { ...f, nfse_procurador_id: +f.nfse_procurador_id || 0, ambiente: +f.ambiente, captura_automatica: !!f.captura_automatica, ciencia_automatica: !!existente?.ciencia_automatica, ativo: true, uf: f.uf.toUpperCase() };
+    const corpo = { ...f, nfse_procurador_id: +f.nfse_procurador_id || 0, ambiente: +f.ambiente, captura_automatica: !!f.captura_automatica, ciencia_automatica: !!existente?.ciencia_automatica, ativo: true, uf: f.uf.toUpperCase(), usar_cert_matriz: "usar_cert_matriz" in f ? !!f.usar_cert_matriz : true };
     try {
       const e = await api(existente ? `/empresas/${existente.id}` : "/empresas", { method: existente ? "PUT" : "POST", json: corpo });
       if (novaCert && !existente) await api(`/empresas/${e.id}/certificado`, { method: "POST", body: formCert(novaCert) });
-      fecharModal(); toast(existente ? "Empresa atualizada" : `Empresa ${esc(e.razao_social)} cadastrada`, "var(--ok)"); estado.view = "empresas"; mostrar("empresas");
-      if (!novaCert && !existente) certificadoEmpresa(e.id);
+      fecharModal(); estado.view = "empresas"; await mostrar("empresas");
+      const nova = estado.empresas.find(x => x.id === e.id);
+      toast(existente ? "Empresa atualizada" : `Empresa ${esc(e.razao_social)} cadastrada${nova && nova.tem_certificado && !nova.cert_proprio ? " · usará o certificado da matriz" : ""}`, "var(--ok)");
+      if (!novaCert && !existente && !nova?.tem_certificado) certificadoEmpresa(e.id);
     } catch (er) { toast(esc(er.message), "var(--er)"); }
   };
 }
@@ -590,7 +645,7 @@ function editarEmpresa(e) {
   modal(`<h3>Editar empresa</h3><div class="acoes" style="margin-top:0"><button class="btn sm" id="atualizar-rf">${svg("busca")} Atualizar pela Receita/SEFAZ</button></div><div id="ed-form"></div>`);
   formEmpresa($("#ed-form"), { ...e, regime: e.regime }, null, e);
   $("#atualizar-rf").onclick = async () => {
-    try { const d = await api("/cadastro/cnpj/" + e.cnpj); formEmpresa($("#ed-form"), { ...d, ambiente: e.ambiente, captura_automatica: e.captura_automatica, regime: e.regime }, null, e); toast("Dados atualizados — confira e salve"); }
+    try { const d = await api("/cadastro/cnpj/" + e.cnpj); formEmpresa($("#ed-form"), { ...d, ambiente: e.ambiente, captura_automatica: e.captura_automatica, regime: e.regime, nfse_modo: e.nfse_modo, nfse_procurador_id: e.nfse_procurador_id, usar_cert_matriz: e.usar_cert_matriz }, null, e); toast("Dados atualizados — confira e salve"); }
     catch (er) { toast(esc(er.message), "var(--er)"); }
   };
 }
@@ -615,12 +670,58 @@ VIEWS.config = async el => {
   await CFG[estado.abaCfg]($("#cfg"));
 };
 const CFG = {};
+const PERFIS = { ADMIN: ["Administrador", "Tudo: empresas, certificados, usuários e configurações"], FISCAL: ["Fiscal", "Consulta, importa, busca na SEFAZ, manifesta e exporta"], CONSULTA: ["Consulta", "Somente visualiza, exporta e gera relatórios"] };
+const perfilSel = (v, attr = "") => `<select ${attr}>${Object.entries(PERFIS).map(([k, [l]]) => `<option value="${k}" ${v === k ? "selected" : ""}>${l}</option>`).join("")}</select>`;
 CFG.usuarios = async el => {
   const us = await api("/usuarios");
-  el.innerHTML = `<div class="tbl"><table><thead><tr><th>Login</th><th>Nome</th><th>Perfil</th></tr></thead><tbody>${us.map(u => `<tr><td>${esc(u.login)}</td><td>${esc(u.nome)}</td><td>${esc({ ADMIN: "Administrador", FISCAL: "Fiscal", CONSULTA: "Consulta" }[u.perfil] || u.perfil)}</td></tr>`).join("")}</tbody></table></div>
-  <form id="fu" class="filtros" style="margin-top:16px"><label>Login<input name="login" required></label><label>Nome<input name="nome"></label><label>Senha<input type="password" name="senha" minlength="8" required></label><label>Perfil<select name="perfil"><option value="FISCAL">Fiscal</option><option value="CONSULTA">Consulta</option><option value="ADMIN">Administrador</option></select></label><button class="btn primary">Criar usuário</button></form>`;
-  $("#fu").onsubmit = async ev => { ev.preventDefault(); try { await api("/usuarios", { method: "POST", json: Object.fromEntries(new FormData(ev.target)) }); mostrar("config"); } catch (e) { toast(esc(e.message), "var(--er)"); } };
+  el.innerHTML = `<div class="card"><h3 style="margin-top:0">Usuários do programa</h3>
+  <p class="muted">${Object.values(PERFIS).map(([l, d]) => `<b>${l}</b> — ${d}`).join("<br>")}</p>
+  <div class="tbl"><table><thead><tr><th>Usuário</th><th>Perfil</th><th>Situação</th><th>Último acesso</th><th></th></tr></thead><tbody>${us.map(u => `<tr data-u="${u.id}" class="${u.ativo ? "" : "inativo"}">
+    <td><b>${esc(u.nome || u.login)}</b><div class="doc-sub">${esc(u.login)}${u.login === estado.eu?.login ? " · você" : ""}</div></td>
+    <td>${perfilSel(u.perfil, `class="u-perfil" ${u.login === estado.eu?.login ? "disabled" : ""}`)}</td>
+    <td><label class="chk-inline"><input type="checkbox" class="u-ativo" ${u.ativo ? "checked" : ""} ${u.login === estado.eu?.login ? "disabled" : ""}> Ativo</label></td>
+    <td class="doc-sub">${u.ultimo_acesso ? dt(u.ultimo_acesso) : "nunca acessou"}</td>
+    <td><div style="display:flex;gap:6px;justify-content:flex-end"><button class="btn sm u-editar">Editar</button><button class="btn sm u-senha">Redefinir senha</button>${u.login === estado.eu?.login ? "" : `<button class="btn sm danger u-excluir">Excluir</button>`}</div></td></tr>`).join("")}</tbody></table></div></div>
+  <form id="fu" class="card" style="margin-top:16px"><h3 style="margin-top:0">Novo usuário</h3><div class="form">
+    <label>Login<input name="login" required autocomplete="off"></label><label>Nome<input name="nome"></label>
+    <label>Senha (mín. 8)<input type="password" name="senha" minlength="8" required autocomplete="new-password"></label><label>Perfil${perfilSel("FISCAL", `name="perfil"`)}</label></div>
+    <div class="acoes"><button class="btn primary">${svg("mais")} Criar usuário</button></div></form>`;
+  const salvar = async (id, dados, msg) => { try { await api(`/usuarios/${id}`, { method: "PUT", json: dados }); toast(msg || "Usuário atualizado", "var(--ok)"); } catch (e) { toast(esc(e.message), "var(--er)"); } mostrar("config", true); };
+  $$("tr[data-u]", el).forEach(tr => {
+    const u = us.find(x => String(x.id) === tr.dataset.u);
+    $(".u-perfil", tr).onchange = ev => salvar(u.id, { perfil: ev.target.value });
+    $(".u-ativo", tr).onchange = ev => salvar(u.id, { ativo: ev.target.checked }, ev.target.checked ? "Usuário reativado" : "Usuário desativado — não consegue mais entrar");
+    $(".u-editar", tr).onclick = () => editarUsuario(u, salvar);
+    $(".u-senha", tr).onclick = () => redefinirSenha(u, salvar);
+    const ex = $(".u-excluir", tr);
+    if (ex) ex.onclick = async () => { if (!confirm(`Excluir o usuário ${u.login}?`)) return; try { await api(`/usuarios/${u.id}`, { method: "DELETE" }); toast("Usuário excluído", "var(--ok)"); } catch (e) { toast(esc(e.message), "var(--er)"); } mostrar("config", true); };
+  });
+  $("#fu").onsubmit = async ev => { ev.preventDefault(); try { await api("/usuarios", { method: "POST", json: Object.fromEntries(new FormData(ev.target)) }); toast("Usuário criado", "var(--ok)"); mostrar("config"); } catch (e) { toast(esc(e.message), "var(--er)"); } };
 };
+function editarUsuario(u, salvar) {
+  modal(`<h3>Editar usuário</h3><form id="feu"><div class="form"><label>Login<input value="${esc(u.login)}" readonly></label><label>Nome<input name="nome" value="${esc(u.nome)}"></label></div>
+  <div class="acoes"><button class="btn primary">Salvar</button><button type="button" class="btn" onclick="fecharModal()">Cancelar</button></div></form>`);
+  $("#feu").onsubmit = ev => { ev.preventDefault(); fecharModal(); salvar(u.id, { nome: new FormData(ev.target).get("nome") }); };
+}
+function redefinirSenha(u, salvar) {
+  modal(`<h3>Redefinir senha de ${esc(u.nome || u.login)}</h3><p class="muted">As senhas salvas nos computadores deste usuário deixam de valer.</p><form id="frs"><div class="form">
+  <label>Nova senha (mín. 8)<input type="password" name="senha" minlength="8" required autocomplete="new-password"></label><label>Repita a nova senha<input type="password" name="senha2" minlength="8" required autocomplete="new-password"></label></div>
+  <div class="acoes"><button class="btn primary">Redefinir senha</button><button type="button" class="btn" onclick="fecharModal()">Cancelar</button></div></form>`);
+  $("#frs").onsubmit = ev => { ev.preventDefault(); const f = new FormData(ev.target);
+    if (f.get("senha") !== f.get("senha2")) { toast("As senhas não conferem", "var(--er)"); return; }
+    fecharModal(); salvar(u.id, { senha: f.get("senha") }, "Senha redefinida"); };
+}
+function minhaSenha() {
+  modal(`<h3>Minha senha</h3><p class="muted">Usuário <b>${esc(estado.eu?.login)}</b>. Depois da troca, a senha salva neste e em outros computadores deixa de valer.</p><form id="fms"><div class="form">
+  <label class="w2">Senha atual<input type="password" name="atual" required autocomplete="current-password"></label>
+  <label>Nova senha (mín. 8)<input type="password" name="nova" minlength="8" required autocomplete="new-password"></label><label>Repita a nova senha<input type="password" name="nova2" minlength="8" required autocomplete="new-password"></label></div>
+  <div class="acoes"><button class="btn primary">Trocar senha</button><button type="button" class="btn" onclick="fecharModal()">Cancelar</button></div></form>`);
+  $("#fms").onsubmit = async ev => { ev.preventDefault(); const f = new FormData(ev.target);
+    if (f.get("nova") !== f.get("nova2")) { toast("As senhas novas não conferem", "var(--er)"); return; }
+    try { await api("/auth/senha", { method: "POST", json: { atual: f.get("atual"), nova: f.get("nova") } }); ["vtx_cred", "vtx_auto"].forEach(k => LS.set(k, "")); fecharModal(); toast("Senha alterada", "var(--ok)"); }
+    catch (e) { toast(esc(e.message), "var(--er)"); } };
+}
+$("#minha-senha").onclick = minhaSenha;
 CFG.uf = async el => {
   const ps = await api("/parametros/uf");
   el.innerHTML = `<p class="muted">Alíquotas internas e FCP de referência usados na conferência fiscal dos documentos. Revise conforme a legislação vigente.</p>
@@ -646,13 +747,13 @@ CFG.procuradores = async el => {
   el.innerHTML = `<div class="card"><h3 style="margin-top:0">Procuradores (contador)</h3>
     <p class="muted">O certificado do contador é usado de duas formas:<br>
     <b>NFS-e Nacional</b> — por <b>procuração eletrônica NFS-e</b>: em Empresas › Editar, escolha "Procuração eletrônica" e o procurador.<br>
-    <b>NF-e</b> — a SEFAZ não aceita procuração; com o certificado do contador são baixadas as NF-e em que ele consta como <b>autorizado a obter o XML</b> (campo autXML da nota). Peça aos clientes que incluam o CPF/CNPJ do contador nesse campo no emissor. Só entram no monitor as notas das empresas cadastradas; as notas recebidas continuam exigindo o certificado da empresa.</p>
+    <b>NF-e</b> — a SEFAZ não aceita procuração; com o certificado do contador são baixadas as NF-e em que ele consta como <b>autorizado a obter o XML</b> (campo autXML da nota). Peça aos clientes que incluam o CPF/CNPJ do contador nesse campo no emissor. Só entram no monitor as notas das empresas cadastradas; as notas recebidas continuam exigindo o certificado da empresa. A busca é feita automaticamente e ao clicar em <b>Consultar</b> na tela NF-e / NFC-e.</p>
     <div class="tbl"><table><thead><tr><th>Procurador</th><th>Certificado</th><th>UF</th><th>Buscar NF-e (autXML)</th><th>Última busca de NF-e</th><th class="n">Empresas NFS-e</th><th></th></tr></thead><tbody>
     ${ps.map(p => { const n = nsu.find(x => x.empresa_id === -p.id && x.servico === "NFE_AUTXML") || {};
       return `<tr data-p="${p.id}"><td><b>${esc(p.nome)}</b><div class="doc-sub">${docFmt(p.documento)}</div></td><td class="doc-sub">${esc(p.titular)}${p.tipo === "REPOSITORIO" ? "<br>instalado no Windows" : ""}<br>válido até ${dia(p.valido_ate)}</td>
       <td>${ufSel(p.uf, `class="p-uf" style="width:76px"`)}</td><td><label class="chk-inline"><input type="checkbox" class="p-nfe" ${p.nfe_autxml ? "checked" : ""}> Ativa</label></td>
       <td class="doc-sub"><div style="max-width:300px;overflow-wrap:anywhere">${n.ultima_consulta ? `${dt(n.ultima_consulta)}${n.proxima_consulta ? ` · próxima ${dt(n.proxima_consulta)}` : ""}<br>${n.ultimo_c_stat ? n.ultimo_c_stat + " · " : ""}${esc(n.ultimo_motivo)}` : "ainda não realizada"}</div></td>
-      <td class="n">${p.empresas}</td><td><div style="display:flex;flex-direction:column;gap:6px"><button class="btn sm p-buscar" ${p.nfe_autxml && p.uf ? "" : "disabled"}>Buscar NF-e agora</button> <button class="btn sm danger" onclick="remProcurador(${p.id})">Remover</button></div></td></tr>`; }).join("")
+      <td class="n">${p.empresas}</td><td><button class="btn sm danger" onclick="remProcurador(${p.id})">Remover</button></td></tr>`; }).join("")
       || `<tr><td colspan="7" class="muted">Nenhum procurador cadastrado.</td></tr>`}</tbody></table></div></div>
     <form id="fproc" class="card" style="margin-top:16px"><h3 style="margin-top:0">Incluir procurador</h3>
     <div class="form"><label class="w2">Nome (opcional — usa o titular do certificado)<input name="nome"></label><label>UF do procurador${ufSel(estado.empresas[0]?.uf || "", `name="uf"`)}</label>
@@ -664,10 +765,6 @@ CFG.procuradores = async el => {
       try { await api(`/procuradores/${id}`, { method: "PUT", json: { uf: $(".p-uf", tr).value, nfe_autxml: $(".p-nfe", tr).checked } }); toast("Procurador atualizado", "var(--ok)"); mostrar("config", true); }
       catch (e) { toast(esc(e.message), "var(--er)"); mostrar("config", true); } };
     $(".p-uf", tr).onchange = salvar; $(".p-nfe", tr).onchange = salvar;
-    $(".p-buscar", tr).onclick = async ev => { const b = ev.target; b.disabled = true; b.textContent = "Consultando SEFAZ…";
-      try { const r = await api(`/procuradores/${id}/nfe?forcar=1`, { method: "POST" }); toast(r.ignorado ? esc(r.motivo) : `${r.documentos} NF-e de empresas cadastradas · ${esc(r.motivo)}`, r.ignorado || r.c_stat === 656 ? "var(--wa)" : "var(--ok)"); }
-      catch (e) { toast(esc(e.message), "var(--er)"); }
-      mostrar("config", true); };
   });
   $("#fproc").onsubmit = async ev => {
     ev.preventDefault(); const f = new FormData(ev.target), fd = formCert(certDoForm(f));

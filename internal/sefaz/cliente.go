@@ -4,13 +4,13 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/xml"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -23,7 +23,7 @@ const nsNFe = "http://www.portalfiscal.inf.br/nfe"
 
 // Cliente executa chamadas SOAP 1.2 com TLS mútuo.
 type Cliente struct {
-	http     *http.Client
+	tr       *transportes
 	Ambiente int
 	Cert     *Certificado
 }
@@ -39,19 +39,29 @@ func NovoCliente(cert *Certificado, ambiente int, verificarTLS bool, cadeiaExtra
 			pool.AppendCertsFromPEM(b)
 		}
 	}
-	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{
-			Certificates:       []tls.Certificate{cert.TLS},
-			RootCAs:            pool,
-			InsecureSkipVerify: !verificarTLS, // somente se configurado explicitamente
-			MinVersion:         tls.VersionTLS12,
-			Renegotiation:      tls.RenegotiateOnceAsClient,
-		},
-		Proxy:               http.ProxyFromEnvironment,
-		TLSHandshakeTimeout: 20 * time.Second,
-		MaxIdleConnsPerHost: 4,
+	return &Cliente{tr: novosTransportes(cert.TLS, pool, verificarTLS), Ambiente: ambiente, Cert: cert}
+}
+
+// do envia a requisição com troca automática do modo de TLS em caso de falha.
+func (c *Cliente) do(ctx context.Context, metodo, u string, corpo []byte, cabecalhos map[string]string) (*http.Response, error) {
+	host := u
+	if pu, err := url.Parse(u); err == nil {
+		host = pu.Host
 	}
-	return &Cliente{http: &http.Client{Transport: tr, Timeout: 60 * time.Second}, Ambiente: ambiente, Cert: cert}
+	return c.tr.Do(host, func() (*http.Request, error) {
+		var b io.Reader
+		if corpo != nil {
+			b = bytes.NewReader(corpo)
+		}
+		req, err := http.NewRequestWithContext(ctx, metodo, u, b)
+		if err != nil {
+			return nil, err
+		}
+		for k, v := range cabecalhos {
+			req.Header.Set(k, v)
+		}
+		return req, nil
+	})
 }
 
 func (c *Cliente) amb() string { return strconv.Itoa(c.Ambiente) }
@@ -65,21 +75,16 @@ func (c *Cliente) url(autorizador, servico string) (string, error) {
 }
 
 // soap envia a mensagem e devolve o corpo da resposta.
-func (c *Cliente) soap(ctx context.Context, url, wsdlNS, corpo string, envolverInteresse bool) ([]byte, error) {
+func (c *Cliente) soap(ctx context.Context, endereco, wsdlNS, corpo string, envolverInteresse bool) ([]byte, error) {
 	dados := `<nfeDadosMsg xmlns="` + wsdlNS + `">` + corpo + `</nfeDadosMsg>`
 	if envolverInteresse {
 		dados = `<nfeDistDFeInteresse xmlns="` + wsdlNS + `"><nfeDadosMsg>` + corpo + `</nfeDadosMsg></nfeDistDFeInteresse>`
 	}
 	env := `<?xml version="1.0" encoding="utf-8"?><soap12:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap12="http://www.w3.org/2003/05/soap-envelope"><soap12:Body>` +
 		dados + `</soap12:Body></soap12:Envelope>`
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(env))
+	resp, err := c.do(ctx, http.MethodPost, endereco, []byte(env), map[string]string{"Content-Type": "application/soap+xml; charset=utf-8"})
 	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/soap+xml; charset=utf-8")
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("falha de comunicação com %s: %w", url, err)
+		return nil, fmt.Errorf("falha de comunicação com %s: %w", endereco, err)
 	}
 	defer resp.Body.Close()
 	b, err := io.ReadAll(io.LimitReader(resp.Body, 64<<20))

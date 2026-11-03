@@ -72,12 +72,7 @@ func (c *Cliente) DistNFSe(ctx context.Context, nsu, cnpjConsulta string) (*RetA
 	if cnpjConsulta != "" {
 		u += "&cnpjConsulta=" + cnpjConsulta
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Accept", "application/json")
-	resp, err := c.http.Do(req)
+	resp, err := c.do(ctx, http.MethodGet, u, nil, map[string]string{"Accept": "application/json"})
 	if err != nil {
 		return nil, fmt.Errorf("falha de comunicação com o Ambiente Nacional da NFS-e: %w", err)
 	}
