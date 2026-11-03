@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<NFSe xmlns="http://www.sped.fazenda.gov.br/nfse" versao="1.00"><infNFSe Id="NFS41190522414259560001120000000000006626115189169448">
+<xLocEmi>Foz do Iguaçu</xLocEmi><xLocPrestacao>Foz do Iguaçu</xLocPrestacao><nNFSe>66</nNFSe><cLocIncid>4108304</cLocIncid><xLocIncid>Foz do Iguaçu</xLocIncid>
+<xTribNac>Manutenção e conservação de máquinas, veículos, aparelhos, equipamentos, motores, elevadores ou de qualquer objeto</xTribNac><verAplic>SefinNac_Pre_1.4.0</verAplic><ambGer>2</ambGer><tpEmis>1</tpEmis><procEmi>2</procEmi><cStat>100</cStat>
+<dhProc>2026-11-03T15:06:32-03:00</dhProc><nDFSe>2611518</nDFSe>
+<emit><CNPJ>41425956000112</CNPJ><xNome>JOAO LUIS DOS SANTOS DA SILVA 72633034934</xNome><enderNac><xLgr>RUA DAS PALMEIRAS</xLgr><nro>120</nro><xBairro>VILA A</xBairro><cMun>4108304</cMun><UF>PR</UF><CEP>85866000</CEP></enderNac><fone>45999990000</fone><email>joao@exemplo.com</email></emit>
+<valores><vBC>2375.00</vBC><pAliqAplic>2.00</pAliqAplic><vISSQN>47.50</vISSQN><vTotalRet>0.00</vTotalRet><vLiq>2375.00</vLiq></valores>
+<DPS versao="1.00"><infDPS Id="DPS410830424142595600011200900000000000000066"><tpAmb>1</tpAmb><dhEmi>2026-11-03T15:05:10-03:00</dhEmi><verAplic>EmissorWeb_1.4.0.0</verAplic><serie>900</serie><nDPS>66</nDPS><dCompet>2026-11-03</dCompet>
+<tpEmit>1</tpEmit><cLocEmi>4108304</cLocEmi>
+<prest><CNPJ>41425956000112</CNPJ><regTrib><opSimpNac>2</opSimpNac><regEspTrib>0</regEspTrib></regTrib></prest>
+<toma><CNPJ>17661871000159</CNPJ><xNome>PONTA SERVICE TRANSPORTES RODOVIARIOS LTDA</xNome><end><endNac><cMun>4108304</cMun><CEP>85860000</CEP></endNac><xLgr>AVENIDA DAS CATARATAS</xLgr><nro>5000</nro><xBairro>JARDIM</xBairro></end><email>fiscal@pontaservice.com.br</email></toma>
+<serv><locPrest><cLocPrestacao>4108304</cLocPrestacao></locPrest><cServ><cTribNac>140401</cTribNac><xDescServ>Serviço de manutenção preventiva e corretiva na frota de caminhões: troca de óleo, revisão do sistema de freios, alinhamento e balanceamento das rodas dos veículos placas ABC1D23, DEF4G56 e GHI7J89, conforme ordem de serviço 2026/1045 aprovada em 28/10/2026. Inclui mão de obra especializada e deslocamento técnico até a garagem do tomador.</xDescServ><cNBS>120012300</cNBS></cServ><infoCompl><xInfComp>Pagamento via PIX. Documento emitido por MEI - não gera direito a crédito.</xInfComp></infoCompl></serv>
+<valores><vServPrest><vServ>2375.00</vServ></vServPrest><trib><tribMun><tribISSQN>1</tribISSQN><tpRetISSQN>1</tpRetISSQN></tribMun><totTrib><pTotTribSN>6.00</pTotTribSN></totTrib></trib></valores></infDPS></DPS></infNFSe></NFSe>

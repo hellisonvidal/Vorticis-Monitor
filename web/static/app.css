@@ -201,3 +201,4 @@ tr.inativo td{opacity:.55}.card.filial{border-left:3px solid var(--pri-s)}
 .emp-acoes .btn.icone{padding:5px}.emp-acoes svg{width:15px;height:15px}
 @media (max-width:1100px){.tab-emp col.c-tipo{width:120px}.tab-emp col.c-cnpj{width:184px}.tab-emp col.c-cert{width:22%}}
 .g-painel .kv{grid-template-columns:110px 1fr}
+.emp-acoes .btn-vazio{display:inline-block;width:27px}

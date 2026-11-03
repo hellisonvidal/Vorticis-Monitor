@@ -106,6 +106,9 @@ func avisoStatus(d *store.Documento) string {
 
 // PDF escreve a representação gráfica simplificada do documento em PDF (A4).
 func PDF(w io.Writer, d *store.Documento, itens []store.Item) error {
+	if d.Modelo == "NFSE" && strings.TrimSpace(d.XML) != "" {
+		return DANFSe(w, d) // leiaute próprio e completo da NFS-e
+	}
 	pdf := fpdf.New("P", "mm", "A4", "")
 	tr := pdf.UnicodeTranslatorFromDescriptor("cp1252")
 	pdf.SetMargins(8, 8, 8)

@@ -12,7 +12,7 @@ Arquitetura completa (ERD, motor de regras, máquina de estados, endpoints): [`d
 - **Salvar senha e login automático** (opcional, na tela de entrada): o computador guarda só uma credencial assinada de 180 dias, invalidada se a senha for trocada.
 - **Botão Consultar único:** em cada tela, o botão azul **Consultar** busca as notas novas na SEFAZ (NF-e, inclusive autXML do contador) e/ou no Ambiente Nacional (NFS-e) e consulta o período — sem botões "Buscar agora" separados. A busca automática continua rodando em segundo plano.
 - **Um documento ou um lote:** "Baixar XML" / "Baixar PDF" de uma nota baixam o arquivo direto; o ZIP é usado só para lotes. Todas as telas de consulta têm **Limpar filtros** (volta ao mês atual e tira pesquisa, modelo, situação e seleção).
-- **XML e PDF em lote:** nas telas de consulta, os botões **XML em lote**, **PDF em lote** e **XML + PDF** geram um ZIP (organizado por modelo e movimento) com as notas marcadas ou, sem seleção, com todas as do filtro. PDF do DANFE/DACTE/DAMDFE/DANFSe com código de barras.
+- **XML e PDF em lote:** nas telas de consulta, os botões **XML em lote**, **PDF em lote** e **XML + PDF** geram um ZIP (organizado por modelo e movimento) com as notas marcadas ou, sem seleção, com todas as do filtro. PDF do DANFE/DACTE/DAMDFE com código de barras e **DANFSe completo** (Padrão Nacional ou ABRASF): prestador, tomador, intermediário, descrição integral do serviço, tributação municipal e federal, retenções, valor líquido, tributos aproximados e informações complementares.
 - **Filiais:** em Empresas › **Incluir filial**, informe o CNPJ da filial; sem certificado próprio, ela usa automaticamente o **certificado da matriz** (mesma raiz de CNPJ) na SEFAZ e no Ambiente Nacional da NFS-e.
 - **Segundo plano na bandeja:** ao fechar a janela, o programa continua rodando no ícone perto do relógio (o monitoramento segue ativo) e reabre com um clique; "Sair" no menu do ícone encerra. Pode ser desligado em Configurações › Sistema. Na inicialização automática começa só na bandeja.
 - **Monitoramento automático** (Configurações › Monitoramento): liga/desliga e define o intervalo da NF-e na SEFAZ (mín. 60 min) e da NFS-e no Ambiente Nacional (mín. 10 min); o programa verifica a cada minuto e consulta cada empresa no horário previsto, mostrando última/próxima consulta e o resultado por empresa.
@@ -31,8 +31,8 @@ São **duas versões separadas** — escolha uma:
 
 | Versão | Arquivo | Para quê |
 |---|---|---|
-| **Instalador** | `instalador/VorticisMonitor-Setup-1.9.1.exe` | Instala o programa para o usuário atual — **não exige administrador** —, com atalhos, inicialização automática opcional e desinstalador. Dados em `%LOCALAPPDATA%\Vorticis\Monitor`. |
-| **Portátil** | `portatil/VorticisMonitor-Portatil-1.9.1.exe` | Arquivo único, sem instalação: coloque numa pasta ou pendrive e abra. Dados na pasta `dados` criada ao lado do arquivo. |
+| **Instalador** | `instalador/VorticisMonitor-Setup-1.9.2.exe` | Instala o programa para o usuário atual — **não exige administrador** —, com atalhos, inicialização automática opcional e desinstalador. Dados em `%LOCALAPPDATA%\Vorticis\Monitor`. |
+| **Portátil** | `portatil/VorticisMonitor-Portatil-1.9.2.exe` | Arquivo único, sem instalação: coloque numa pasta ou pendrive e abra. Dados na pasta `dados` criada ao lado do arquivo. |
 
 `SHA256SUMS.txt` traz os hashes para conferência da integridade.
 
