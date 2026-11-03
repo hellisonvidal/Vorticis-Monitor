@@ -49,6 +49,7 @@ func Open(path string) (*Store, error) {
 		`ALTER TABLE procurador ADD COLUMN nfe_autxml INTEGER NOT NULL DEFAULT 1`,
 		`ALTER TABLE empresa ADD COLUMN usar_cert_matriz INTEGER NOT NULL DEFAULT 1`,
 		`ALTER TABLE usuario ADD COLUMN ultimo_acesso TEXT`,
+		`ALTER TABLE usuario ADD COLUMN ultima_empresa_id INTEGER NOT NULL DEFAULT 0`,
 	} {
 		db.Exec(m)
 	}
@@ -206,6 +207,7 @@ func (s *Store) ExcluirEmpresa(id int64, apagarDocumentos bool) error {
 		`DELETE FROM pedido_compra WHERE empresa_id = ?`,
 		`DELETE FROM certificado WHERE empresa_id = ?`,
 		`DELETE FROM nsu_controle WHERE empresa_id = ?`,
+		`UPDATE usuario SET ultima_empresa_id = 0 WHERE ultima_empresa_id = ?`,
 		`DELETE FROM empresa WHERE id = ?`,
 	} {
 		if _, err := tx.Exec(q, id); err != nil {
@@ -1266,6 +1268,9 @@ type Usuario struct {
 	Perfil       string `json:"perfil"`
 	Ativo        bool   `json:"ativo"`
 	UltimoAcesso string `json:"ultimo_acesso,omitempty"`
+	// UltimaEmpresaID é a última empresa escolhida no seletor (0 = todas); o programa
+	// abre nela no próximo acesso.
+	UltimaEmpresaID int64 `json:"ultima_empresa_id"`
 	CriadoEm     string `json:"criado_em,omitempty"`
 	SenhaHash    string `json:"-"`
 }
@@ -1289,8 +1294,8 @@ func (s *Store) CriarUsuario(u *Usuario) error {
 
 func (s *Store) UsuarioPorLogin(login string) (*Usuario, error) {
 	u := &Usuario{}
-	err := s.DB.QueryRow(`SELECT id, login, COALESCE(nome,''), perfil, ativo, senha_hash FROM usuario WHERE login = ?`, strings.ToLower(login)).
-		Scan(&u.ID, &u.Login, &u.Nome, &u.Perfil, &u.Ativo, &u.SenhaHash)
+	err := s.DB.QueryRow(`SELECT id, login, COALESCE(nome,''), perfil, ativo, senha_hash, COALESCE(ultima_empresa_id,0) FROM usuario WHERE login = ?`, strings.ToLower(login)).
+		Scan(&u.ID, &u.Login, &u.Nome, &u.Perfil, &u.Ativo, &u.SenhaHash, &u.UltimaEmpresaID)
 	return u, err
 }
 
@@ -1344,6 +1349,12 @@ func (s *Store) ContarAdminsAtivos(exceto int64) int {
 	var n int
 	s.DB.QueryRow(`SELECT COUNT(*) FROM usuario WHERE perfil = 'ADMIN' AND ativo = 1 AND id <> ?`, exceto).Scan(&n)
 	return n
+}
+
+// SalvarUltimaEmpresa grava a empresa escolhida pelo usuário (0 = todas as empresas).
+func (s *Store) SalvarUltimaEmpresa(login string, empresaID int64) error {
+	_, err := s.DB.Exec(`UPDATE usuario SET ultima_empresa_id = ? WHERE login = ?`, empresaID, strings.ToLower(login))
+	return err
 }
 
 func (s *Store) RegistrarAcesso(id int64) {
