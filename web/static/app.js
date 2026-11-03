@@ -148,15 +148,46 @@ async function entrar() {
 }
 async function carregarEmpresas() {
   estado.empresas = await api("/empresas");
-  const sel = $("#empresa-sel");
-  sel.innerHTML = `<option value="">Todas as empresas</option>` + estado.empresas.map(e => `<option value="${e.id}">${esc(e.razao_social)}</option>`).join("");
-  sel.value = estado.empresa;
+  if (estado.empresa && !estado.empresas.some(e => String(e.id) === estado.empresa)) { estado.empresa = ""; localStorage.setItem("vtx_emp", ""); }
+  rotuloEmpresa();
   const sem = estado.empresas.filter(e => !e.tem_certificado), b = $("#banner");
   if (!estado.empresas.length) { b.innerHTML = `${svg("empresa")} Nenhuma empresa cadastrada. <a onclick="mostrar('empresas');novaEmpresa()">Cadastrar empresa pelo CNPJ ou certificado</a>`; b.classList.remove("hidden"); }
   else if (sem.length) { b.innerHTML = `${svg("chave")} ${sem.length} empresa(s) sem certificado digital — necessário para consultar a SEFAZ e baixar os XMLs recebidos. <a onclick="mostrar('empresas')">Incluir certificado</a>`; b.classList.remove("hidden"); }
   else b.classList.add("hidden");
 }
-$("#empresa-sel").onchange = e => { estado.empresa = e.target.value; localStorage.setItem("vtx_emp", estado.empresa); estado.pagina = 1; mostrar(estado.view); };
+// Seletor de empresa: CNPJ antes do nome e pesquisa por CNPJ (com ou sem pontuação) ou nome.
+const semAcento = s => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+const empRaiz = e => (e.cnpj || "").slice(0, 8);
+const empOrdem = () => [...estado.empresas].sort((a, b) => empRaiz(a).localeCompare(empRaiz(b)) || (b.matriz - a.matriz) || a.cnpj.localeCompare(b.cnpj));
+function rotuloEmpresa() {
+  const e = estado.empresas.find(x => String(x.id) === estado.empresa);
+  $("#emp-rot").innerHTML = e ? `<b>${docFmt(e.cnpj)}</b> ${esc(e.razao_social)}` : "Todas as empresas";
+}
+function listaEmpresas() {
+  const t = $("#emp-busca").value.trim(), dig = t.replace(/\D/g, ""), txt = semAcento(t);
+  const achou = empOrdem().filter(e => !t || (dig && e.cnpj.includes(dig)) || semAcento(e.razao_social).includes(txt));
+  const it = (id, html, on) => `<a data-emp="${id}" class="${on ? "on" : ""}">${html}</a>`;
+  $("#emp-lista").innerHTML = (!t ? it("", "<span>Todas as empresas</span>", !estado.empresa) : "") +
+    achou.map(e => it(e.id, `<b>${docFmt(e.cnpj)}</b><span>${esc(e.razao_social)}</span>${e.cnpj.length === 14 && !e.matriz ? `<i>filial</i>` : ""}`, String(e.id) === estado.empresa)).join("") +
+    (t && !achou.length ? `<div class="muted" style="padding:10px 12px">Nenhuma empresa com "${esc(t)}"</div>` : "");
+  $$("#emp-lista a").forEach(a => a.onclick = () => escolherEmpresa(a.dataset.emp));
+}
+function escolherEmpresa(id) {
+  $("#emp-pop").classList.add("hidden");
+  estado.empresa = String(id); localStorage.setItem("vtx_emp", estado.empresa); rotuloEmpresa(); estado.pagina = 1; mostrar(estado.view);
+}
+$("#emp-btn").onclick = ev => {
+  ev.stopPropagation(); const p = $("#emp-pop"), abrir = p.classList.contains("hidden");
+  p.classList.toggle("hidden", !abrir);
+  if (abrir) { $("#emp-busca").value = ""; listaEmpresas(); $("#emp-busca").focus(); }
+};
+$("#emp-pop").onclick = ev => ev.stopPropagation();
+document.addEventListener("click", () => $("#emp-pop").classList.add("hidden"));
+$("#emp-busca").oninput = listaEmpresas;
+$("#emp-busca").onkeydown = ev => {
+  if (ev.key === "Escape") { $("#emp-pop").classList.add("hidden"); ev.stopPropagation(); }
+  if (ev.key === "Enter") { const a = $("#emp-lista a"); if (a) escolherEmpresa(a.dataset.emp); }
+};
 $("#upload").onchange = async ev => {
   const fd = new FormData(); [...ev.target.files].forEach(f => fd.append("arquivo", f, f.name));
   try {
@@ -179,6 +210,7 @@ function conectarSSE() {
   const refresh = () => { clearTimeout(tRefresh); tRefresh = setTimeout(() => { if (VIEWS_DOC.includes(estado.view) && $("#drawer").classList.contains("hidden")) mostrar(estado.view, true); }, 800); };
   es.addEventListener("documento.novo", e => { const d = JSON.parse(e.data).dados; toast(`${MOD[d.modelo] || d.modelo} nº ${esc(d.numero)} recebido ${stTag(d.status)}`); refresh(); });
   es.addEventListener("documento.status", refresh);
+  es.addEventListener("captura.ciclo", () => { if (["nfe", "servicos"].includes(estado.view)) refresh(); else if (estado.view === "config" && estado.abaCfg === "monitoramento") mostrar("config", true); });
 }
 
 /* ---------- navegação ---------- */
@@ -536,24 +568,61 @@ function manifestar(chave) {
 /* ---------- Empresas ---------- */
 VIEWS.empresas = async el => {
   await carregarEmpresas();
-  const adm = ehAdmin();
-  // Agrupa por raiz do CNPJ: a matriz (/0001) primeiro e as filiais logo abaixo.
-  const raiz = e => (e.cnpj || "").slice(0, 8), ordem = [...estado.empresas].sort((a, b) => raiz(a).localeCompare(raiz(b)) || (b.matriz - a.matriz) || a.cnpj.localeCompare(b.cnpj));
-  const filiais = r => estado.empresas.filter(x => raiz(x) === r && !x.matriz).length;
-  el.innerHTML = `${adm ? `<div class="acoes" style="margin-top:0"><button class="btn primary" onclick="novaEmpresa()">${svg("mais")} Nova empresa</button></div>` : ""}
-  ${estado.empresas.length ? `<div class="grid g2">${ordem.map(e => `<div class="card ${e.matriz ? "" : "filial"}">
-    <div style="display:flex;justify-content:space-between;gap:10px"><div><h3 style="margin:0">${esc(e.razao_social)}</h3><div class="doc-sub">${docFmt(e.cnpj)} · ${esc(e.uf)} · IE ${esc(e.ie || "não informada")}</div></div>
-    <div style="display:flex;gap:6px;align-items:flex-start;flex-wrap:wrap;justify-content:flex-end">${e.cnpj.length === 14 ? `<span class="st ${e.matriz ? "PENDENTE" : "CANCELADA"}">${e.matriz ? `Matriz${filiais(raiz(e)) ? ` · ${filiais(raiz(e))} filial(is)` : ""}` : "Filial"}</span>` : ""}<span class="st ${e.ambiente === 1 ? "AUTORIZADA" : "PENDENTE"}">${e.ambiente === 1 ? "Produção" : "Homologação"}</span></div></div>
-    <div class="kv" style="margin-top:12px"><b>Regime</b><span>${esc({ LR: "Lucro Real", LP: "Lucro Presumido", SN: "Simples Nacional", MEI: "MEI" }[e.regime] || e.regime)}</span><b>Certificado</b><span id="cert-${e.id}" class="muted">verificando…</span></div>
-    ${adm ? `<div class="acoes"><button class="btn sm" onclick='editarEmpresa(${JSON.stringify(e).replace(/'/g, "&#39;")})'>Editar</button><button class="btn sm" onclick="certificadoEmpresa(${e.id})">${e.cert_proprio ? "Substituir certificado" : e.tem_certificado ? "Incluir certificado próprio" : "Incluir certificado"}</button>
-    ${e.cert_proprio ? `<button class="btn sm danger" onclick="removerCert(${e.id})">Remover certificado</button>` : ""}
-    ${e.cnpj.length === 14 ? `<button class="btn sm" onclick="novaEmpresa('${raiz(e)}')">${svg("mais")} Incluir filial</button>` : ""}</div>` : ""}</div>`).join("")}</div>`
+  const adm = ehAdmin(), filiais = r => estado.empresas.filter(x => empRaiz(x) === r && !x.matriz).length;
+  const regime = { LR: "Lucro Real", LP: "Lucro Presumido", SN: "Simples Nacional", MEI: "MEI" };
+  el.innerHTML = `<div class="filtros compacto"><label class="busca">Pesquisar<input id="emp-q" placeholder="CNPJ ou nome da empresa" value="${esc(estado.empQ || "")}"></label>
+    <span class="muted" id="emp-qtd" style="align-self:center"></span>${adm ? `<button class="btn primary" onclick="novaEmpresa()">${svg("mais")} Nova empresa</button>` : ""}</div>
+  ${estado.empresas.length ? `<div class="tbl"><table class="tab-emp"><thead><tr><th>CNPJ</th><th>Razão social</th><th>UF</th><th>Tipo</th><th>Regime</th><th>Ambiente</th><th>Certificado</th>${adm ? "<th></th>" : ""}</tr></thead><tbody>
+  ${empOrdem().map(e => `<tr data-emp="${e.id}" class="${e.cnpj.length === 14 && !e.matriz ? "filial" : ""}">
+    <td class="cnpj">${docFmt(e.cnpj)}</td>
+    <td><b>${esc(e.razao_social)}</b><div class="doc-sub">IE ${esc(e.ie || "não informada")}${e.ativo === false ? " · inativa" : ""}</div></td>
+    <td>${esc(e.uf)}</td>
+    <td>${e.cnpj.length !== 14 ? "—" : e.matriz ? `<span class="st PENDENTE">Matriz${filiais(empRaiz(e)) ? ` · ${filiais(empRaiz(e))}` : ""}</span>` : `<span class="st CANCELADA">Filial</span>`}</td>
+    <td>${esc(regime[e.regime] || e.regime)}</td>
+    <td><span class="st ${e.ambiente === 1 ? "AUTORIZADA" : "PENDENTE"}">${e.ambiente === 1 ? "Produção" : "Homologação"}</span></td>
+    <td id="cert-${e.id}" class="doc-sub">verificando…</td>
+    ${adm ? `<td><div class="emp-acoes"><button class="btn sm" data-a="editar">Editar</button><button class="btn sm" data-a="cert">Certificado</button>${e.cnpj.length === 14 ? `<button class="btn sm" data-a="filial" title="Incluir filial desta empresa">${svg("mais")} Filial</button>` : ""}<button class="btn sm danger" data-a="excluir" title="Excluir empresa">${svg("x")}</button></div></td>` : ""}</tr>`).join("")}</tbody></table></div>`
     : `<div class="card vazio">${svg("empresa")}<div>Nenhuma empresa cadastrada.</div><div style="font-size:12.5px">Informe apenas o CNPJ ou use o certificado digital: os dados são importados da Receita Federal e a IE da SEFAZ.</div></div>`}`;
+  const filtrar = () => {
+    const t = $("#emp-q").value.trim(), dig = t.replace(/\D/g, ""), txt = semAcento(t); estado.empQ = t; let n = 0;
+    $$("tr[data-emp]", el).forEach(tr => { const e = estado.empresas.find(x => String(x.id) === tr.dataset.emp), ok = !t || (dig && e.cnpj.includes(dig)) || semAcento(e.razao_social).includes(txt); tr.classList.toggle("hidden", !ok); n += ok; });
+    $("#emp-qtd").textContent = `${n} de ${estado.empresas.length} empresa(s)`;
+  };
+  $("#emp-q").oninput = filtrar; filtrar();
+  $$("tr[data-emp]", el).forEach(tr => {
+    const e = estado.empresas.find(x => String(x.id) === tr.dataset.emp);
+    tr.onclick = ev => {
+      const a = ev.target.closest("[data-a]")?.dataset.a;
+      if (a === "editar") editarEmpresa(e); else if (a === "cert") certificadoEmpresa(e.id); else if (a === "filial") novaEmpresa(empRaiz(e)); else if (a === "excluir") excluirEmpresa(e);
+    };
+  });
   for (const e of estado.empresas) {
-    api(`/empresas/${e.id}/certificado`).then(c => $("#cert-" + e.id).innerHTML = `<span style="color:var(--tx)">${esc(c.titular)}</span><br>válido até ${dia(c.valido_ate)} (${c.dias_restantes} dias)${c.herdado_de ? `<br><span class="st PENDENTE" style="margin-top:4px">certificado da matriz</span> <span class="doc-sub">${esc(c.herdado_de)}</span>` : ""}`)
-      .catch(() => $("#cert-" + e.id).innerHTML = `<span class="st CONTINGENCIA">Sem certificado</span>${!e.matriz && e.usar_cert_matriz ? `<div class="doc-sub">Inclua o certificado na matriz ou nesta filial</div>` : ""}`);
+    api(`/empresas/${e.id}/certificado`).then(c => $("#cert-" + e.id).innerHTML = `<span style="color:var(--tx)">${esc(String(c.titular).split(":")[0])}</span><br>até ${dia(c.valido_ate)} (${c.dias_restantes} dias)${c.herdado_de ? ` · <span class="st PENDENTE">da matriz</span>` : ""}${adm && e.cert_proprio ? ` · <a onclick="event.stopPropagation();removerCert(${e.id})" style="color:var(--er)">remover</a>` : ""}`)
+      .catch(() => { const c = $("#cert-" + e.id); if (c) c.innerHTML = `<span class="st CONTINGENCIA">Sem certificado</span>`; });
   }
 };
+// Exclusão de empresa/filial: as notas podem ficar no monitor (sem empresa) ou ser excluídas.
+async function excluirEmpresa(e) {
+  const { documentos: n } = await api(`/empresas/${e.id}/documentos`);
+  const dependentes = e.cert_proprio ? estado.empresas.filter(x => x.id !== e.id && x.cert_empresa_id === e.id) : [];
+  modal(`<h3>Excluir ${e.cnpj.length === 14 && !e.matriz ? "filial" : "empresa"}</h3>
+  <p><b>${docFmt(e.cnpj)}</b> ${esc(e.razao_social)}</p>
+  <p class="muted">Serão removidos o cadastro, o certificado, o controle de busca na SEFAZ / Ambiente Nacional e os pedidos de compra desta empresa.</p>
+  ${dependentes.length ? `<div class="aviso">${svg("alerta")} ${dependentes.length} filial(is) usam o certificado desta empresa (${dependentes.map(x => esc(x.razao_social)).join(", ")}) e ficarão sem certificado.</div>` : ""}
+  <form id="fx">${n ? `<div class="opcoes"><label class="chk-inline"><input type="radio" name="docs" value="manter" checked> Manter as ${n} nota(s) no monitor (ficam em "Todas as empresas", sem vínculo)</label>
+    <label class="chk-inline"><input type="radio" name="docs" value="excluir"> Excluir também as ${n} nota(s) desta empresa</label></div>` : `<p class="muted">Nenhuma nota vinculada a esta empresa.</p>`}
+  <label style="margin-top:12px">Para confirmar, digite EXCLUIR<input name="conf" required autocomplete="off"></label>
+  <div class="acoes"><button class="btn primary danger-bg">${svg("x")} Excluir</button><button type="button" class="btn" onclick="fecharModal()">Cancelar</button></div></form>`);
+  $("#fx").onsubmit = async ev => {
+    ev.preventDefault(); const f = new FormData(ev.target);
+    if (f.get("conf").trim().toUpperCase() !== "EXCLUIR") { toast('Digite EXCLUIR para confirmar', "var(--er)"); return; }
+    try {
+      const r = await api(`/empresas/${e.id}?documentos=${f.get("docs") === "excluir" ? "excluir" : "manter"}`, { method: "DELETE" });
+      fecharModal(); if (estado.empresa === String(e.id)) { estado.empresa = ""; localStorage.setItem("vtx_emp", ""); }
+      toast(`${esc(e.razao_social)} excluída${r.documentos ? ` · ${r.documentos} nota(s) ${r.documentos_excluidos ? "excluída(s)" : "mantida(s) no monitor"}` : ""}`, "var(--ok)"); mostrar("empresas");
+    } catch (er) { toast(esc(er.message), "var(--er)"); }
+  };
+}
 // Escolha do certificado: instalado no Windows (repositório do usuário) ou arquivo .pfx.
 async function blocoCertificado(el, cnpjBase) {
   el.innerHTML = `<div class="tabs" style="margin-bottom:12px"><a data-c="win" class="on">Instalado no Windows</a><a data-c="arq">Arquivo .pfx / .p12</a></div><div class="cert-orig"></div>`;
@@ -664,7 +733,7 @@ async function removerCert(id) { if (confirm("Remover o certificado desta empres
 
 /* ---------- Configurações ---------- */
 VIEWS.config = async el => {
-  const abas = [["usuarios", "Usuários"], ["uf", "Alíquotas por UF"], ["mva", "MVA / ICMS-ST"], ["procuradores", "Procuradores (contador)"], ["integracao", "Integração com ERP"], ["backup", "Backup"], ["sistema", "Sistema"]];
+  const abas = [["usuarios", "Usuários"], ["monitoramento", "Monitoramento"], ["uf", "Alíquotas por UF"], ["mva", "MVA / ICMS-ST"], ["procuradores", "Procuradores (contador)"], ["integracao", "Integração com ERP"], ["backup", "Backup"], ["sistema", "Sistema"]];
   el.innerHTML = `<div class="tabs">${abas.map(([k, l]) => `<a class="${estado.abaCfg === k ? "on" : ""}" data-a="${k}">${l}</a>`).join("")}</div><div id="cfg"></div>`;
   $$(".tabs a", el).forEach(a => a.onclick = () => { estado.abaCfg = a.dataset.a; mostrar("config"); });
   await CFG[estado.abaCfg]($("#cfg"));
@@ -787,11 +856,8 @@ CFG.integracao = async el => {
 async function remWh(id) { await api(`/integracoes/webhooks/${id}`, { method: "DELETE" }); mostrar("config"); }
 CFG.sistema = async el => {
   const c = await api("/config"), cf = c.config;
-  const intervalos = [60, 65, 80, 120];
-  const iv = intervalos.includes(cf.intervalo_distdfe_min) ? cf.intervalo_distdfe_min : 65;
   const campoPasta = (k, l, pem) => `<label class="w2">${l}<div class="com-botao"><input name="${k}" value="${esc(cf[k] ?? "")}" ${pem ? `placeholder="opcional"` : ""}><button type="button" class="btn sm" data-nav="${k}" data-pem="${pem ? 1 : ""}">${svg("docs")} Procurar…</button></div></label>`;
   el.innerHTML = `<form id="fs" class="card"><p class="muted">Pasta de dados: <code>${esc(c.diretorio_dados)}</code></p><div class="form">
-  <label class="w2">Intervalo da busca de NF-e recebidas na SEFAZ<select name="intervalo_distdfe_min">${intervalos.map(m => `<option value="${m}" ${m === iv ? "selected" : ""}>${m} minutos${m === 65 ? " (recomendado)" : m === 120 ? " (outro monitor usa o mesmo CNPJ)" : m === 60 ? " (mínimo permitido pela SEFAZ)" : ""}</option>`).join("")}</select></label>
   ${campoPasta("pasta_monitorada", "Pasta de importação de XML", false)}
   ${campoPasta("cadeia_icp_brasil", "Arquivo PEM da cadeia ICP-Brasil", true)}
   <label>Porta da API local<input name="porta" value="${esc(cf.porta ?? "")}"></label>
@@ -805,6 +871,46 @@ CFG.sistema = async el => {
   $("#fs").onsubmit = async ev => { ev.preventDefault(); const o = {};
     for (const [k, v] of new FormData(ev.target)) o[k] = ["verificar_tls_sefaz", "consultar_pendentes_sefaz"].includes(k) ? !!v : (/^(pasta_monitorada|cadeia_icp_brasil)$/.test(k) ? v : +String(v).replace(",", "."));
     try { await api("/config", { method: "PUT", json: o }); toast("Configuração salva", "var(--ok)"); } catch (e) { toast(esc(e.message), "var(--er)"); } };
+};
+
+// Monitoramento automático: o programa busca sozinho as notas novas de cada empresa
+// no intervalo escolhido (NF-e na SEFAZ e NFS-e no Ambiente Nacional).
+const ROT_MIN = m => m >= 60 && m % 60 === 0 ? `${m / 60} hora${m > 60 ? "s" : ""}` : `${m} minutos`;
+CFG.monitoramento = async el => {
+  const [c, nsu, procs] = await Promise.all([api("/config"), api("/captura/status").catch(() => []), api("/procuradores").catch(() => [])]), cf = c.config;
+  const opNFe = [60, 65, 80, 120, 180, 240], opNFSe = [10, 15, 30, 60, 120, 240];
+  const ivNFe = opNFe.includes(cf.intervalo_distdfe_min) ? cf.intervalo_distdfe_min : 65, ivNFSe = opNFSe.includes(cf.intervalo_nfse_min) ? cf.intervalo_nfse_min : 30;
+  const ligado = cf.monitoramento_automatico !== false;
+  const cel = (id, serv, ativo) => {
+    if (!ativo) return `<td class="doc-sub">—</td>`;
+    const n = nsu.find(x => x.empresa_id === id && x.servico === serv);
+    if (!n) return `<td class="doc-sub">${ligado ? "na próxima verificação" : "aguardando"}</td>`;
+    const erro = !n.ultimo_c_stat || [401, 403, 429, 656].includes(n.ultimo_c_stat);
+    return `<td class="doc-sub"><div>Última: ${dt(n.ultima_consulta) || "—"}</div><div>Próxima: <b style="color:var(--tx)">${ligado ? dt(n.proxima_consulta) || "agora" : "desligado"}</b></div>
+      <div class="motivo" style="${erro ? "color:var(--wa)" : ""}" title="${esc(n.ultimo_motivo)}">${n.ultimo_c_stat ? n.ultimo_c_stat + " · " : ""}${esc(n.ultimo_motivo)}</div></td>`;
+  };
+  const emps = empOrdem();
+  el.innerHTML = `<form id="fmon" class="card"><h3 style="margin-top:0">Monitoramento automático</h3>
+    <p class="muted">Com o monitoramento ligado, o programa verifica a cada minuto e busca as notas novas de cada empresa quando chega o horário definido abaixo — sem precisar clicar em Consultar. As notas novas aparecem nas telas em tempo real. O programa precisa estar aberto (a janela pode ficar minimizada); para monitorar com o computador sem ninguém logado, instale como serviço do Windows.</p>
+    <div class="form">
+      <label>Monitoramento automático<select name="monitoramento_automatico"><option value="1">Ligado</option><option value="" ${ligado ? "" : "selected"}>Desligado</option></select></label>
+      <label>NF-e / NFC-e recebidas (SEFAZ)<select name="intervalo_distdfe_min">${opNFe.map(m => `<option value="${m}" ${m === ivNFe ? "selected" : ""}>A cada ${ROT_MIN(m)}${m === 65 ? " (recomendado)" : m === 60 ? " (mínimo da SEFAZ)" : m === 120 ? " (outro sistema usa o CNPJ)" : ""}</option>`).join("")}</select></label>
+      <label>NFS-e (Ambiente Nacional)<select name="intervalo_nfse_min">${opNFSe.map(m => `<option value="${m}" ${m === ivNFSe ? "selected" : ""}>A cada ${ROT_MIN(m)}${m === 30 ? " (recomendado)" : ""}</option>`).join("")}</select></label>
+    </div>
+    <p class="muted" style="font-size:12.5px;margin:0">A SEFAZ só permite uma nova consulta do mesmo CNPJ 1 hora depois de responder "nenhum documento novo"; consultas antes disso geram bloqueio (656). Empresas com "Buscar notas recebidas automaticamente = Não" (Empresas › Editar) ficam fora do monitoramento.</p>
+    <div class="acoes"><button class="btn primary">Salvar</button></div></form>
+  <div class="card" style="margin-top:16px"><h3 style="margin-top:0">Situação por empresa</h3>
+  ${emps.length ? `<div class="tbl"><table class="tab-mon"><thead><tr><th>Empresa</th><th>Automático</th><th>NF-e (SEFAZ)</th><th>NFS-e (Ambiente Nacional)</th></tr></thead><tbody>
+  ${emps.map(e => { const nfse = e.tem_certificado || (e.nfse_modo === "PROCURACAO" && e.nfse_procurador_id);
+    return `<tr><td><b>${docFmt(e.cnpj)}</b><div class="doc-sub">${esc(e.razao_social)}</div>${e.tem_certificado ? "" : `<span class="st CONTINGENCIA">sem certificado</span>`}</td>
+    <td>${e.captura_automatica && ligado ? `<span class="st AUTORIZADA">Sim</span>` : `<span class="st CANCELADA">Não</span>`}</td>
+    ${cel(e.id, "NFE_DISTDFE", e.tem_certificado)}${cel(e.id, "NFSE_ADN", nfse)}</tr>`; }).join("")}
+  ${procs.filter(p => p.nfe_autxml && p.uf).map(p => `<tr><td><b>${esc(p.nome)}</b><div class="doc-sub">Procurador · NF-e em que consta como autorizado (autXML)</div></td><td>${ligado ? `<span class="st AUTORIZADA">Sim</span>` : `<span class="st CANCELADA">Não</span>`}</td>${cel(-p.id, "NFE_AUTXML", true)}<td class="doc-sub">—</td></tr>`).join("")}
+  </tbody></table></div>` : `<p class="muted">Nenhuma empresa cadastrada.</p>`}</div>`;
+  $("#fmon").onsubmit = async ev => { ev.preventDefault(); const f = Object.fromEntries(new FormData(ev.target));
+    try { await api("/config", { method: "PUT", json: { monitoramento_automatico: !!f.monitoramento_automatico, intervalo_distdfe_min: +f.intervalo_distdfe_min, intervalo_nfse_min: +f.intervalo_nfse_min } });
+      toast(f.monitoramento_automatico ? `Monitoramento ligado · NF-e a cada ${ROT_MIN(+f.intervalo_distdfe_min)}, NFS-e a cada ${ROT_MIN(+f.intervalo_nfse_min)}` : "Monitoramento automático desligado", "var(--ok)"); mostrar("config", true); }
+    catch (e) { toast(esc(e.message), "var(--er)"); } };
 };
 
 CFG.backup = async el => {

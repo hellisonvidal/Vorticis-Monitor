@@ -220,6 +220,7 @@ Autenticação: `Authorization: Bearer <token>` (login) ou `X-API-Key` (ERP, per
 | GET/POST | `/pedidos-compra` · GET `/conciliacoes` | Compras |
 | GET/PUT | `/parametros/uf` · GET/POST/DELETE `/parametros/mva` · POST `/parametros/ncm` | Parâmetros fiscais |
 | GET/POST/DELETE | `/integracoes/webhooks` | Webhooks (HMAC-SHA256) |
+| DELETE | `/empresas/{id}?documentos=manter\|excluir` · GET `/empresas/{id}/documentos` | Exclusão de empresa/filial (certificado, NSU e pedidos; notas mantidas sem empresa ou excluídas) |
 | GET/POST | `/usuarios` · PUT/DELETE `/usuarios/{id}` · GET `/auditoria` · GET/PUT `/config` | Administração (usuários: nome, perfil, ativo, redefinir senha; mantém ao menos um administrador ativo) |
 | GET / POST | `/auth/eu` · `/auth/senha` | Usuário da sessão e troca da própria senha (qualquer perfil) |
 

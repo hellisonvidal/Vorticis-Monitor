@@ -25,7 +25,7 @@ import (
 	"vorticis.com.br/monitor/internal/store"
 )
 
-const Versao = "1.6.0"
+const Versao = "1.7.0"
 
 type Server struct {
 	M      *servicos.Monitor
@@ -49,7 +49,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/empresas", auth(s.listarEmpresas))
 	mux.HandleFunc("POST /api/v1/empresas", admin(s.salvarEmpresa))
 	mux.HandleFunc("GET /api/v1/empresas/{id}", auth(s.obterEmpresa))
+	mux.HandleFunc("GET /api/v1/empresas/{id}/documentos", admin(func(w http.ResponseWriter, r *http.Request) {
+		jsonOK(w, map[string]int{"documentos": s.M.Store.ContarDocumentosEmpresa(idPath(r, "id"))})
+	}))
 	mux.HandleFunc("PUT /api/v1/empresas/{id}", admin(s.salvarEmpresa))
+	mux.HandleFunc("DELETE /api/v1/empresas/{id}", admin(s.excluirEmpresa))
 	mux.HandleFunc("POST /api/v1/empresas/{id}/certificado", admin(s.enviarCertificado))
 	mux.HandleFunc("GET /api/v1/empresas/{id}/certificado", auth(s.obterCertificado))
 	mux.HandleFunc("DELETE /api/v1/empresas/{id}/certificado", admin(s.removerCertificado))
@@ -360,6 +364,30 @@ func (s *Server) salvarEmpresa(w http.ResponseWriter, r *http.Request) {
 	s.M.InvalidarCliente(e.ID)
 	s.M.Store.Auditar(usuario(r), "SALVAR_EMPRESA", "empresa", strconv.FormatInt(e.ID, 10), e.CNPJ)
 	jsonOK(w, e)
+}
+
+// excluirEmpresa remove a empresa (ou filial). ?documentos=excluir apaga também as
+// notas dela; o padrão mantém as notas no monitor, sem vínculo de empresa.
+func (s *Server) excluirEmpresa(w http.ResponseWriter, r *http.Request) {
+	id := idPath(r, "id")
+	e, err := s.M.Store.ObterEmpresa(id)
+	if err != nil {
+		erro(w, 404, "empresa não encontrada")
+		return
+	}
+	apagar := r.URL.Query().Get("documentos") == "excluir"
+	n := s.M.Store.ContarDocumentosEmpresa(id)
+	if err := s.M.Store.ExcluirEmpresa(id, apagar); err != nil {
+		erro(w, 500, err.Error())
+		return
+	}
+	s.M.InvalidarCliente(id)
+	det := fmt.Sprintf("%s %s · %d documento(s) mantido(s) sem empresa", e.CNPJ, e.RazaoSocial, n)
+	if apagar {
+		det = fmt.Sprintf("%s %s · %d documento(s) excluído(s)", e.CNPJ, e.RazaoSocial, n)
+	}
+	s.M.Store.Auditar(usuario(r), "EXCLUIR_EMPRESA", "empresa", strconv.FormatInt(id, 10), det)
+	jsonOK(w, map[string]any{"ok": true, "documentos": n, "documentos_excluidos": apagar})
 }
 
 func (s *Server) enviarCertificado(w http.ResponseWriter, r *http.Request) {

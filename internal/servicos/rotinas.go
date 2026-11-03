@@ -74,10 +74,37 @@ type alvoDist struct {
 	aposImportar func(d sefaz.DocZip, ir *ResultadoImportacao)
 }
 
+// IntervaloNFe é o intervalo do monitoramento da NF-e na SEFAZ (mínimo de 60 min — regra da SEFAZ).
+func (m *Monitor) IntervaloNFe() time.Duration {
+	return time.Duration(max(60, m.Cfg.IntervaloDistDFeMin)) * time.Minute
+}
+
+// IntervaloNFSe é o intervalo do monitoramento da NFS-e no Ambiente Nacional (mínimo de 10 min).
+func (m *Monitor) IntervaloNFSe() time.Duration {
+	return time.Duration(max(10, m.Cfg.IntervaloNFSeMin)) * time.Minute
+}
+
+// antecipar indica que o intervalo configurado já passou desde a última consulta
+// (ex.: o usuário reduziu o intervalo), salvo quando o servidor exigiu a espera
+// ou a última tentativa falhou (cStat 0: aguarda os 15 min de nova tentativa).
+func antecipar(n store.NSU, intervalo time.Duration, bloqueios ...int) bool {
+	for _, c := range bloqueios {
+		if n.UltimoCStat == c {
+			return false
+		}
+	}
+	t, err := time.Parse(time.RFC3339, n.UltimaConsulta)
+	return err == nil && time.Since(t) >= intervalo
+}
+
 func (m *Monitor) capturarDist(ctx context.Context, a alvoDist, forcar bool) (*ResultadoCaptura, error) {
 	n := m.Store.ObterNSU(a.chaveNSU, a.servico)
 	res := &ResultadoCaptura{EmpresaID: a.chaveNSU, UltNSU: n.UltNSU, Proxima: n.ProximaConsulta}
-	if t, err := time.Parse(time.RFC3339, n.ProximaConsulta); err == nil && time.Now().Before(t) {
+	intervalo := m.IntervaloNFe()
+	if n.Concorrente && intervalo < 120*time.Minute {
+		intervalo = 120 * time.Minute
+	}
+	if t, err := time.Parse(time.RFC3339, n.ProximaConsulta); err == nil && time.Now().Before(t) && !antecipar(n, intervalo, 0, 656) {
 		// "Buscar agora" só antecipa a consulta quando a espera não é exigida pela SEFAZ.
 		if !forcar || n.UltimoCStat == 137 || n.UltimoCStat == 656 {
 			res.Ignorado = true
@@ -88,11 +115,12 @@ func (m *Monitor) capturarDist(ctx context.Context, a alvoDist, forcar bool) (*R
 	}
 	cli, cUF, docInteressado, err := a.abrir()
 	if err != nil {
+		// Certificado indisponível: registra e tenta de novo em 15 min (o monitoramento
+		// automático verifica a cada minuto e não deve repetir o erro a cada volta).
+		n.ProximaConsulta = time.Now().Add(15 * time.Minute).Format(time.RFC3339)
+		n.UltimoCStat, n.UltimoMotivo = 0, err.Error()
+		m.Store.SalvarNSU(n)
 		return nil, err
-	}
-	intervalo := time.Duration(max(60, m.Cfg.IntervaloDistDFeMin)) * time.Minute
-	if n.Concorrente && intervalo < 120*time.Minute {
-		intervalo = 120 * time.Minute
 	}
 	folga := func() time.Duration {
 		if !n.Concorrente {
@@ -212,16 +240,19 @@ func (m *Monitor) CapturarNFSe(ctx context.Context, empresaID int64, forcar bool
 		n.UltNSU = "0"
 	}
 	res := &ResultadoCaptura{EmpresaID: empresaID, UltNSU: n.UltNSU, Proxima: n.ProximaConsulta}
-	if t, err := time.Parse(time.RFC3339, n.ProximaConsulta); err == nil && time.Now().Before(t) && (!forcar || n.UltimoCStat == 429) {
+	intervalo := m.IntervaloNFSe()
+	if t, err := time.Parse(time.RFC3339, n.ProximaConsulta); err == nil && time.Now().Before(t) && (!forcar || n.UltimoCStat == 429) && !antecipar(n, intervalo, 0, 429) {
 		res.Ignorado = true
 		res.Motivo = "Próxima consulta de NFS-e permitida a partir de " + t.Format("02/01 15:04")
 		return res, nil
 	}
 	cli, emp, via, err := m.ClienteNFSe(empresaID)
 	if err != nil {
+		n.ProximaConsulta = time.Now().Add(15 * time.Minute).Format(time.RFC3339)
+		n.UltimoCStat, n.UltimoMotivo = 0, err.Error()
+		m.Store.SalvarNSU(n)
 		return nil, err
 	}
-	intervalo := time.Duration(max(60, m.Cfg.IntervaloDistDFeMin)) * time.Minute
 	salvar := func(prox time.Duration, cstat int, motivo string) {
 		n.ProximaConsulta = time.Now().Add(prox).Format(time.RFC3339)
 		n.UltimoCStat, n.UltimoMotivo = cstat, motivo+" · via "+via
@@ -470,10 +501,12 @@ func (m *Monitor) executarCiclo(ctx context.Context, ciclo int) {
 	}()
 	m.ProcessarPastaMonitorada()
 	m.BackupSeVencido()
-	if ciclo%5 == 0 {
-		if m.Cfg.ConsultarPendentesSefaz {
-			m.ConsultarPendentes(ctx, 50)
-		}
+	if ciclo%5 == 0 && m.Cfg.ConsultarPendentesSefaz {
+		m.ConsultarPendentes(ctx, 50)
+	}
+	// Monitoramento automático: verificado a cada varredura (1 min); cada empresa só
+	// é consultada quando chega a hora definida em Configurações (proxima_consulta).
+	if m.Cfg.MonitoramentoAutomatico {
 		emps, _ := m.Store.ListarEmpresas()
 		for _, e := range emps {
 			if e.Ativo && e.CapturaAutomatica && e.TemCertificado {

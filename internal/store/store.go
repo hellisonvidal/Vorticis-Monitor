@@ -179,6 +179,42 @@ func (s *Store) SalvarEmpresa(e *Empresa) error {
 	return err
 }
 
+// ContarDocumentosEmpresa devolve quantos documentos estão vinculados à empresa.
+func (s *Store) ContarDocumentosEmpresa(id int64) int {
+	var n int
+	s.DB.QueryRow(`SELECT COUNT(*) FROM documento WHERE empresa_id = ?`, id).Scan(&n)
+	return n
+}
+
+// ExcluirEmpresa remove a empresa, seus certificados, controle de NSU e pedidos de
+// compra. Os documentos são excluídos (apagarDocumentos) ou ficam no monitor sem
+// vínculo de empresa.
+func (s *Store) ExcluirEmpresa(id int64, apagarDocumentos bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	doc := `UPDATE documento SET empresa_id = NULL WHERE empresa_id = ?`
+	if apagarDocumentos {
+		doc = `DELETE FROM documento WHERE empresa_id = ?`
+	}
+	for _, q := range []string{
+		doc,
+		`DELETE FROM pedido_compra WHERE empresa_id = ?`,
+		`DELETE FROM certificado WHERE empresa_id = ?`,
+		`DELETE FROM nsu_controle WHERE empresa_id = ?`,
+		`DELETE FROM empresa WHERE id = ?`,
+	} {
+		if _, err := tx.Exec(q, id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 // SalvarNFSeEmpresa grava como a empresa consulta a NFS-e Nacional.
 func (s *Store) SalvarNFSeEmpresa(id int64, modo string, procurador int64) error {
 	if modo != "PROCURACAO" {

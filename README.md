@@ -12,6 +12,8 @@ Arquitetura completa (ERD, motor de regras, máquina de estados, endpoints): [`d
 - **Botão Consultar único:** em cada tela, o botão azul **Consultar** busca as notas novas na SEFAZ (NF-e, inclusive autXML do contador) e/ou no Ambiente Nacional (NFS-e) e consulta o período — sem botões "Buscar agora" separados. A busca automática continua rodando em segundo plano.
 - **XML e PDF em lote:** nas telas de consulta, os botões **XML em lote**, **PDF em lote** e **XML + PDF** geram um ZIP (organizado por modelo e movimento) com as notas marcadas ou, sem seleção, com todas as do filtro. PDF do DANFE/DACTE/DAMDFE/DANFSe com código de barras.
 - **Filiais:** em Empresas › **Incluir filial**, informe o CNPJ da filial; sem certificado próprio, ela usa automaticamente o **certificado da matriz** (mesma raiz de CNPJ) na SEFAZ e no Ambiente Nacional da NFS-e.
+- **Monitoramento automático** (Configurações › Monitoramento): liga/desliga e define o intervalo da NF-e na SEFAZ (mín. 60 min) e da NFS-e no Ambiente Nacional (mín. 10 min); o programa verifica a cada minuto e consulta cada empresa no horário previsto, mostrando última/próxima consulta e o resultado por empresa.
+- **Empresas em lista**, agrupadas por matriz e filiais, com pesquisa por CNPJ ou nome e **exclusão** de empresas/filiais (mantendo as notas no monitor sem vínculo ou excluindo-as junto). O seletor de empresa no topo mostra o CNPJ antes do nome e pesquisa enquanto você digita.
 - **Usuários** (Configurações › Usuários): perfis Administrador, Fiscal e Consulta; editar, ativar/desativar, redefinir senha, excluir e último acesso. Cada usuário troca a própria senha pelo botão com o nome dele no topo.
 - **Recebidos:** busca automática na SEFAZ (Distribuição DF-e), manifestação do destinatário assinada e download do XML completo. Convive com outros monitores de notas que usam o mesmo CNPJ: respeita a regra de 1 hora da SEFAZ, detecta o bloqueio 656 causado por outro sistema e amplia o intervalo automaticamente.
 - **NFS-e Nacional (ADN):** busca automática das NFS-e prestadas e tomadas no Ambiente de Dados Nacional (`GET /contribuintes/DFe/{NSU}?lote=true&cnpjConsulta=`), com o certificado da própria empresa ou por **procuração eletrônica** — o contador cadastra o próprio certificado em Configurações › Procuradores e escolhe, em cada empresa, "Procuração eletrônica".
@@ -26,8 +28,8 @@ São **duas versões separadas** — escolha uma:
 
 | Versão | Arquivo | Para quê |
 |---|---|---|
-| **Instalador** | `instalador/VorticisMonitor-Setup-1.6.0.exe` | Instala o programa para o usuário atual — **não exige administrador** —, com atalhos, inicialização automática opcional e desinstalador. Dados em `%LOCALAPPDATA%\Vorticis\Monitor`. |
-| **Portátil** | `portatil/VorticisMonitor-Portatil-1.6.0.exe` | Arquivo único, sem instalação: coloque numa pasta ou pendrive e abra. Dados na pasta `dados` criada ao lado do arquivo. |
+| **Instalador** | `instalador/VorticisMonitor-Setup-1.7.0.exe` | Instala o programa para o usuário atual — **não exige administrador** —, com atalhos, inicialização automática opcional e desinstalador. Dados em `%LOCALAPPDATA%\Vorticis\Monitor`. |
+| **Portátil** | `portatil/VorticisMonitor-Portatil-1.7.0.exe` | Arquivo único, sem instalação: coloque numa pasta ou pendrive e abra. Dados na pasta `dados` criada ao lado do arquivo. |
 
 `SHA256SUMS.txt` traz os hashes para conferência da integridade.
 

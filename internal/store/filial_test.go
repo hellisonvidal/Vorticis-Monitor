@@ -42,3 +42,38 @@ func TestFilialUsaCertificadoDaMatriz(t *testing.T) {
 		t.Fatal("com a opção desligada a filial não usa o certificado da matriz")
 	}
 }
+
+func TestExcluirEmpresa(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, apagar := range []bool{false, true} {
+		e := &Empresa{CNPJ: "11222333000181", RazaoSocial: "Empresa", UF: "SP"}
+		if err := s.SalvarEmpresa(e); err != nil {
+			t.Fatal(err)
+		}
+		s.SalvarCertificado(&Certificado{EmpresaID: e.ID, Tipo: "A1", PFX: []byte("x"), Senha: []byte("y")})
+		s.SalvarNSU(NSU{EmpresaID: e.ID, Servico: "NFSE_ADN", UltNSU: "5"})
+		chave := "3526101122233300018155001000000101110000101" + map[bool]string{false: "4", true: "5"}[apagar]
+		if err := s.SalvarDocumento(&Documento{EmpresaID: &e.ID, Chave: chave, Modelo: "NFE", Direcao: "S", Status: "AUTORIZADA"}, nil, nil, nil); err != nil {
+			t.Fatal(err)
+		}
+		if n := s.ContarDocumentosEmpresa(e.ID); n != 1 {
+			t.Fatalf("documentos = %d", n)
+		}
+		if err := s.ExcluirEmpresa(e.ID, apagar); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.ObterEmpresa(e.ID); err == nil {
+			t.Fatal("empresa não foi excluída")
+		}
+		d, err := s.ObterDocumento(chave)
+		if apagar && err == nil {
+			t.Fatal("documento deveria ter sido excluído")
+		}
+		if !apagar && (err != nil || d.EmpresaID != nil) {
+			t.Fatalf("documento deveria ficar sem empresa: %+v %v", d, err)
+		}
+	}
+}

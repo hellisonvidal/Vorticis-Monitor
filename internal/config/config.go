@@ -23,6 +23,10 @@ type Config struct {
 	VerificarTLSSefaz bool   `json:"verificar_tls_sefaz"`
 	CadeiaICPBrasil   string `json:"cadeia_icp_brasil,omitempty"` // PEM adicional de ACs (ICP-Brasil)
 
+	// Monitoramento automático: liga/desliga as buscas em segundo plano e define
+	// o intervalo da NF-e (SEFAZ, mínimo 60 min) e da NFS-e (ADN, mínimo 10 min).
+	MonitoramentoAutomatico bool    `json:"monitoramento_automatico"`
+	IntervaloNFSeMin        int     `json:"intervalo_nfse_min"`
 	IntervaloDistDFeMin     int     `json:"intervalo_distdfe_min"`
 	IntervaloVarreduraSeg   int     `json:"intervalo_varredura_seg"`
 	PrazoCancelNFeHoras     int     `json:"prazo_cancelamento_nfe_horas"`
@@ -48,7 +52,7 @@ type Config struct {
 func padrao() *Config {
 	return &Config{
 		Host: "127.0.0.1", Porta: 8765, VerificarTLSSefaz: true,
-		IntervaloDistDFeMin: 65, IntervaloVarreduraSeg: 60,
+		IntervaloDistDFeMin: 65, IntervaloVarreduraSeg: 60, MonitoramentoAutomatico: true, IntervaloNFSeMin: 30,
 		PrazoCancelNFeHoras: 24, PrazoCancelNFCeMin: 30,
 		PrazoManifestacaoDias: 180, PrazoCienciaDias: 10, AntecedenciaAlertaHoras: 6,
 		DiasAlertaCertificado: 30, ToleranciaPrecoPct: 1, ToleranciaQtdPct: 0,

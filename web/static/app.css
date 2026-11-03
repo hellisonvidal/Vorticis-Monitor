@@ -166,3 +166,16 @@ tr.total td{font-weight:700;background:var(--pri-s)}
 th .tira{margin-left:6px;color:var(--mut);font-size:14px;line-height:1;opacity:.45;cursor:pointer}th:hover .tira{opacity:1}th .tira:hover{color:var(--er)}
 tr.inativo td{opacity:.55}.card.filial{border-left:3px solid var(--pri-s)}
 #eu-nome{max-width:140px;overflow:hidden;text-overflow:ellipsis}
+.emp-sel{position:relative}#emp-btn{max-width:380px}#emp-rot{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}#emp-rot b{font-variant-numeric:tabular-nums;margin-right:4px}#emp-btn .seta{width:14px;height:14px;opacity:.6}
+.emp-pop{position:absolute;right:0;top:calc(100% + 6px);width:440px;max-width:90vw;background:var(--card);border:1px solid var(--bd);border-radius:12px;box-shadow:0 12px 40px #0f1e2e33;padding:8px;z-index:25}
+.emp-pop input{width:100%;margin-bottom:6px}.emp-lista{max-height:360px;overflow:auto;display:flex;flex-direction:column}
+.emp-lista a{display:flex;gap:10px;align-items:baseline;padding:7px 10px;border-radius:8px;color:var(--tx);font-size:13px}
+.emp-lista a:hover,.emp-lista a:first-child:focus{background:var(--pri-s)}.emp-lista a.on{background:var(--pri-s);color:var(--pri)}
+.emp-lista a b{font-variant-numeric:tabular-nums;white-space:nowrap;font-weight:600}.emp-lista a span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}.emp-lista a i{font-style:normal;font-size:11px;color:var(--mut)}
+.tab-emp td{padding:8px 12px;font-size:13px}.tab-emp tbody tr{cursor:default}.tab-emp td.cnpj{font-variant-numeric:tabular-nums;white-space:nowrap;font-weight:600}
+.tab-emp tr.filial td.cnpj{padding-left:28px;font-weight:500}.tab-emp tr.filial td.cnpj:before{content:"↳ ";color:var(--mut)}
+.emp-acoes{display:flex;gap:4px;justify-content:flex-end;flex-wrap:nowrap}.emp-acoes .btn{padding:4px 8px}.emp-acoes svg{width:14px;height:14px}
+.opcoes{display:flex;flex-direction:column;gap:8px;margin:8px 0}.opcoes .chk-inline{white-space:normal;font-size:13px;color:var(--tx)}
+.btn.danger-bg{background:var(--er);border-color:var(--er)}.btn.danger-bg:hover{background:#b91c1c}
+.tab-mon td{vertical-align:top;font-size:12.5px}.tab-mon tbody tr{cursor:default}.tab-mon .motivo{max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tab-emp td:nth-child(2){min-width:240px}.tab-emp td:nth-child(5){white-space:nowrap}
