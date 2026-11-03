@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/tls"
 	"encoding/base64"
 	"fmt"
 	"net/http"
@@ -31,7 +32,9 @@ func TestDistNFSe(t *testing.T) {
 	}))
 	defer srv.Close()
 	URLsADN[9] = srv.URL
-	c := &Cliente{http: srv.Client(), Ambiente: 9}
+	tr := novosTransportes(tls.Certificate{}, nil, false)
+	tr.clientes[0] = srv.Client()
+	c := &Cliente{tr: tr, Ambiente: 9}
 	r, err := c.DistNFSe(context.Background(), "000", "11222333000181")
 	if err != nil || len(r.Itens) != 1 || !bytes.HasPrefix(r.Itens[0].XML, []byte("<NFSe")) {
 		t.Fatalf("lote: %+v %v", r, err)

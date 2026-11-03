@@ -47,6 +47,8 @@ func Open(path string) (*Store, error) {
 		  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
 		`ALTER TABLE procurador ADD COLUMN uf TEXT`,
 		`ALTER TABLE procurador ADD COLUMN nfe_autxml INTEGER NOT NULL DEFAULT 1`,
+		`ALTER TABLE empresa ADD COLUMN usar_cert_matriz INTEGER NOT NULL DEFAULT 1`,
+		`ALTER TABLE usuario ADD COLUMN ultimo_acesso TEXT`,
 	} {
 		db.Exec(m)
 	}
@@ -84,16 +86,39 @@ type Empresa struct {
 	// do procurador (contador) com procuração eletrônica da empresa.
 	NFSeModo         string `json:"nfse_modo"`
 	NFSeProcuradorID int64  `json:"nfse_procurador_id"`
+	// Filiais: sem certificado próprio, usam o certificado de outra empresa da
+	// mesma raiz de CNPJ (de preferência a matriz, /0001).
+	UsarCertMatriz bool   `json:"usar_cert_matriz"`
+	CertProprio    bool   `json:"cert_proprio"`
+	CertEmpresaID  int64  `json:"cert_empresa_id,omitempty"`
+	CertEmpresa    string `json:"cert_empresa,omitempty"`
+	Matriz         bool   `json:"matriz"`
 }
 
 const empCols = `id, cnpj, razao_social, uf, COALESCE(ie,''), COALESCE(cod_mun,''), regime, ambiente, captura_automatica, ciencia_automatica, ativo,
  EXISTS(SELECT 1 FROM certificado c WHERE c.empresa_id = empresa.id AND c.ativo = 1),
- COALESCE(nfse_modo,'PROPRIO'), COALESCE(nfse_procurador_id,0)`
+ COALESCE(nfse_modo,'PROPRIO'), COALESCE(nfse_procurador_id,0), COALESCE(usar_cert_matriz,1),
+ COALESCE((SELECT e2.id FROM empresa e2 WHERE substr(e2.cnpj,1,8) = substr(empresa.cnpj,1,8) AND e2.id <> empresa.id AND length(empresa.cnpj) = 14
+   AND EXISTS(SELECT 1 FROM certificado c2 WHERE c2.empresa_id = e2.id AND c2.ativo = 1)
+   ORDER BY substr(e2.cnpj,9,4) = '0001' DESC, e2.id LIMIT 1), 0)`
 
 func scanEmpresa(r interface{ Scan(...any) error }) (*Empresa, error) {
 	e := &Empresa{}
-	err := r.Scan(&e.ID, &e.CNPJ, &e.RazaoSocial, &e.UF, &e.IE, &e.CodMun, &e.Regime, &e.Ambiente, &e.CapturaAutomatica, &e.CienciaAutomatica, &e.Ativo, &e.TemCertificado, &e.NFSeModo, &e.NFSeProcuradorID)
+	var raiz int64
+	err := r.Scan(&e.ID, &e.CNPJ, &e.RazaoSocial, &e.UF, &e.IE, &e.CodMun, &e.Regime, &e.Ambiente, &e.CapturaAutomatica, &e.CienciaAutomatica, &e.Ativo, &e.TemCertificado, &e.NFSeModo, &e.NFSeProcuradorID, &e.UsarCertMatriz, &raiz)
+	e.CertProprio = e.TemCertificado
+	e.Matriz = len(e.CNPJ) == 14 && e.CNPJ[8:12] == "0001"
+	if !e.CertProprio && e.UsarCertMatriz && raiz > 0 {
+		e.TemCertificado, e.CertEmpresaID = true, raiz
+	}
 	return e, err
+}
+
+// completarNomeCert preenche o nome da empresa cujo certificado é usado (filial).
+func (s *Store) completarNomeCert(e *Empresa) {
+	if e.CertEmpresaID > 0 {
+		s.DB.QueryRow(`SELECT razao_social || ' (' || cnpj || ')' FROM empresa WHERE id = ?`, e.CertEmpresaID).Scan(&e.CertEmpresa)
+	}
 }
 
 func (s *Store) ListarEmpresas() ([]*Empresa, error) {
@@ -110,11 +135,19 @@ func (s *Store) ListarEmpresas() ([]*Empresa, error) {
 		}
 		out = append(out, e)
 	}
+	rows.Close()
+	for _, e := range out {
+		s.completarNomeCert(e)
+	}
 	return out, nil
 }
 
 func (s *Store) ObterEmpresa(id int64) (*Empresa, error) {
-	return scanEmpresa(s.DB.QueryRow(`SELECT `+empCols+` FROM empresa WHERE id = ?`, id))
+	e, err := scanEmpresa(s.DB.QueryRow(`SELECT `+empCols+` FROM empresa WHERE id = ?`, id))
+	if err == nil {
+		s.completarNomeCert(e)
+	}
+	return e, err
 }
 
 func (s *Store) EmpresaPorCNPJ(cnpj string) (*Empresa, error) {
@@ -132,8 +165,8 @@ func (s *Store) SalvarEmpresa(e *Empresa) error {
 		e.Regime = "LR"
 	}
 	if e.ID == 0 {
-		r, err := s.DB.Exec(`INSERT INTO empresa (cnpj, razao_social, uf, ie, cod_mun, regime, ambiente, captura_automatica, ciencia_automatica, ativo) VALUES (?,?,?,?,?,?,?,?,?,1)`,
-			e.CNPJ, e.RazaoSocial, strings.ToUpper(e.UF), e.IE, e.CodMun, e.Regime, e.Ambiente, e.CapturaAutomatica, e.CienciaAutomatica)
+		r, err := s.DB.Exec(`INSERT INTO empresa (cnpj, razao_social, uf, ie, cod_mun, regime, ambiente, captura_automatica, ciencia_automatica, ativo, usar_cert_matriz) VALUES (?,?,?,?,?,?,?,?,?,1,?)`,
+			e.CNPJ, e.RazaoSocial, strings.ToUpper(e.UF), e.IE, e.CodMun, e.Regime, e.Ambiente, e.CapturaAutomatica, e.CienciaAutomatica, e.UsarCertMatriz)
 		if err != nil {
 			return err
 		}
@@ -141,8 +174,8 @@ func (s *Store) SalvarEmpresa(e *Empresa) error {
 		e.Ativo = true
 		return nil
 	}
-	_, err := s.DB.Exec(`UPDATE empresa SET razao_social=?, uf=?, ie=?, cod_mun=?, regime=?, ambiente=?, captura_automatica=?, ciencia_automatica=?, ativo=? WHERE id=?`,
-		e.RazaoSocial, strings.ToUpper(e.UF), e.IE, e.CodMun, e.Regime, e.Ambiente, e.CapturaAutomatica, e.CienciaAutomatica, e.Ativo, e.ID)
+	_, err := s.DB.Exec(`UPDATE empresa SET razao_social=?, uf=?, ie=?, cod_mun=?, regime=?, ambiente=?, captura_automatica=?, ciencia_automatica=?, ativo=?, usar_cert_matriz=? WHERE id=?`,
+		e.RazaoSocial, strings.ToUpper(e.UF), e.IE, e.CodMun, e.Regime, e.Ambiente, e.CapturaAutomatica, e.CienciaAutomatica, e.Ativo, e.UsarCertMatriz, e.ID)
 	return err
 }
 
@@ -239,8 +272,10 @@ type Certificado struct {
 	ValidoDe      string `json:"valido_de"`
 	ValidoAte     string `json:"valido_ate"`
 	DiasRestantes int    `json:"dias_restantes"`
-	PFX           []byte `json:"-"`
-	Senha         []byte `json:"-"`
+	// HerdadoDe: empresa (matriz) dona do certificado usado por uma filial.
+	HerdadoDe string `json:"herdado_de,omitempty"`
+	PFX       []byte `json:"-"`
+	Senha     []byte `json:"-"`
 }
 
 func (s *Store) SalvarCertificado(c *Certificado) error {
@@ -275,6 +310,26 @@ func (s *Store) CertificadoAtivo(empresaID int64) (*Certificado, error) {
 		c.DiasRestantes = int(time.Until(t).Hours() / 24)
 	}
 	return c, nil
+}
+
+// CertificadoEfetivo devolve o certificado próprio da empresa ou, na filial sem
+// certificado e com "usar certificado da matriz", o da empresa de mesma raiz.
+func (s *Store) CertificadoEfetivo(empresaID int64) (*Certificado, error) {
+	if c, err := s.CertificadoAtivo(empresaID); err == nil {
+		return c, nil
+	}
+	e, err := s.ObterEmpresa(empresaID)
+	if err != nil {
+		return nil, err
+	}
+	if e.CertEmpresaID == 0 {
+		return nil, sql.ErrNoRows
+	}
+	c, err := s.CertificadoAtivo(e.CertEmpresaID)
+	if err == nil {
+		c.HerdadoDe = e.CertEmpresa
+	}
+	return c, err
 }
 
 func (s *Store) RemoverCertificado(empresaID int64) error {
@@ -1120,12 +1175,14 @@ func (s *Store) ImportarNCM(linhas [][3]string) (int, error) {
 // ---------------- Usuários / auditoria / webhooks ----------------
 
 type Usuario struct {
-	ID        int64  `json:"id"`
-	Login     string `json:"login"`
-	Nome      string `json:"nome"`
-	Perfil    string `json:"perfil"`
-	Ativo     bool   `json:"ativo"`
-	SenhaHash string `json:"-"`
+	ID           int64  `json:"id"`
+	Login        string `json:"login"`
+	Nome         string `json:"nome"`
+	Perfil       string `json:"perfil"`
+	Ativo        bool   `json:"ativo"`
+	UltimoAcesso string `json:"ultimo_acesso,omitempty"`
+	CriadoEm     string `json:"criado_em,omitempty"`
+	SenhaHash    string `json:"-"`
 }
 
 func (s *Store) ContarUsuarios() int {
@@ -1153,7 +1210,7 @@ func (s *Store) UsuarioPorLogin(login string) (*Usuario, error) {
 }
 
 func (s *Store) ListarUsuarios() ([]Usuario, error) {
-	rows, err := s.DB.Query(`SELECT id, login, COALESCE(nome,''), perfil, ativo FROM usuario ORDER BY login`)
+	rows, err := s.DB.Query(`SELECT id, login, COALESCE(nome,''), perfil, ativo, COALESCE(ultimo_acesso,''), COALESCE(created_at,'') FROM usuario ORDER BY login`)
 	if err != nil {
 		return nil, err
 	}
@@ -1161,10 +1218,51 @@ func (s *Store) ListarUsuarios() ([]Usuario, error) {
 	out := []Usuario{}
 	for rows.Next() {
 		var u Usuario
-		rows.Scan(&u.ID, &u.Login, &u.Nome, &u.Perfil, &u.Ativo)
+		rows.Scan(&u.ID, &u.Login, &u.Nome, &u.Perfil, &u.Ativo, &u.UltimoAcesso, &u.CriadoEm)
 		out = append(out, u)
 	}
 	return out, nil
+}
+
+func (s *Store) UsuarioPorID(id int64) (*Usuario, error) {
+	u := &Usuario{}
+	err := s.DB.QueryRow(`SELECT id, login, COALESCE(nome,''), perfil, ativo, senha_hash FROM usuario WHERE id = ?`, id).
+		Scan(&u.ID, &u.Login, &u.Nome, &u.Perfil, &u.Ativo, &u.SenhaHash)
+	return u, err
+}
+
+// AtualizarUsuario altera nome, perfil e situação (ativo) do usuário.
+func (s *Store) AtualizarUsuario(u *Usuario) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := s.DB.Exec(`UPDATE usuario SET nome = ?, perfil = ?, ativo = ? WHERE id = ?`, u.Nome, u.Perfil, u.Ativo, u.ID)
+	return err
+}
+
+// AlterarSenha grava o novo hash (invalida as senhas salvas nos computadores).
+func (s *Store) AlterarSenha(id int64, hash string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := s.DB.Exec(`UPDATE usuario SET senha_hash = ? WHERE id = ?`, hash, id)
+	return err
+}
+
+func (s *Store) RemoverUsuario(id int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := s.DB.Exec(`DELETE FROM usuario WHERE id = ?`, id)
+	return err
+}
+
+// ContarAdminsAtivos conta os administradores ativos, exceto o informado.
+func (s *Store) ContarAdminsAtivos(exceto int64) int {
+	var n int
+	s.DB.QueryRow(`SELECT COUNT(*) FROM usuario WHERE perfil = 'ADMIN' AND ativo = 1 AND id <> ?`, exceto).Scan(&n)
+	return n
+}
+
+func (s *Store) RegistrarAcesso(id int64) {
+	s.DB.Exec(`UPDATE usuario SET ultimo_acesso = ? WHERE id = ?`, agora(), id)
 }
 
 func (s *Store) Auditar(usuario, acao, entidade, id, detalhe string) {

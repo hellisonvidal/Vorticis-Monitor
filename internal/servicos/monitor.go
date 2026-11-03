@@ -50,13 +50,15 @@ func Novo(s *store.Store, cfg *config.Config, cofre *keystore.Cofre) *Monitor {
 // ErrSemCertificado indica que a empresa ainda não possui certificado digital cadastrado.
 var ErrSemCertificado = errors.New("empresa sem certificado digital A1 cadastrado — inclua o certificado em Configurações › Certificado Digital")
 
-// ClienteSefaz devolve (com cache) o cliente SOAP com o certificado da empresa.
+// ClienteSefaz devolve (com cache) o cliente SOAP com o certificado da empresa
+// ou, na filial sem certificado próprio, com o certificado da matriz (mesma raiz
+// de CNPJ — aceito pela SEFAZ e pelo Ambiente Nacional da NFS-e).
 func (m *Monitor) ClienteSefaz(empresaID int64) (*sefaz.Cliente, *store.Empresa, error) {
 	emp, err := m.Store.ObterEmpresa(empresaID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("empresa %d não encontrada", empresaID)
 	}
-	ct, err := m.Store.CertificadoAtivo(empresaID)
+	ct, err := m.Store.CertificadoEfetivo(empresaID)
 	if err != nil {
 		return nil, emp, ErrSemCertificado
 	}
@@ -109,7 +111,11 @@ func (m *Monitor) ClienteNFSe(empresaID int64) (*sefaz.Cliente, *store.Empresa, 
 	}
 	if emp.NFSeModo != "PROCURACAO" {
 		c, e, err := m.ClienteSefaz(empresaID)
-		return c, e, "certificado da empresa", err
+		via := "certificado da empresa"
+		if e != nil && !e.CertProprio && e.CertEmpresa != "" {
+			via = "certificado da matriz " + e.CertEmpresa
+		}
+		return c, e, via, err
 	}
 	p, err := m.Store.ObterProcurador(emp.NFSeProcuradorID)
 	if err != nil {

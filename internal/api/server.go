@@ -25,7 +25,7 @@ import (
 	"vorticis.com.br/monitor/internal/store"
 )
 
-const Versao = "1.5.0"
+const Versao = "1.6.0"
 
 type Server struct {
 	M      *servicos.Monitor
@@ -104,6 +104,10 @@ func (s *Server) Handler() http.Handler {
 
 	mux.HandleFunc("GET /api/v1/usuarios", admin(s.listarUsuarios))
 	mux.HandleFunc("POST /api/v1/usuarios", admin(s.criarUsuario))
+	mux.HandleFunc("PUT /api/v1/usuarios/{id}", admin(s.atualizarUsuario))
+	mux.HandleFunc("DELETE /api/v1/usuarios/{id}", admin(s.removerUsuario))
+	mux.HandleFunc("GET /api/v1/auth/eu", auth(s.eu))
+	mux.HandleFunc("POST /api/v1/auth/senha", auth(s.trocarSenha))
 	mux.HandleFunc("GET /api/v1/auditoria", admin(s.auditoria))
 	mux.HandleFunc("GET /api/v1/config", admin(s.obterConfig))
 	mux.HandleFunc("GET /api/v1/sistema/pastas", admin(s.navegarPastas))
@@ -210,6 +214,7 @@ func (s *Server) authSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.M.Store.Auditar(u.Login, "SETUP", "usuario", u.Login, "administrador criado")
+	s.M.Store.RegistrarAcesso(u.ID)
 	jsonOK(w, map[string]any{"token": s.emitirToken(u.Login, u.Perfil), "usuario": u})
 }
 
@@ -245,6 +250,7 @@ func (s *Server) authLogin(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.M.Store.Auditar(u.Login, "LOGIN", "usuario", u.Login, r.RemoteAddr)
+	s.M.Store.RegistrarAcesso(u.ID)
 	out := map[string]any{"token": s.emitirToken(u.Login, u.Perfil), "usuario": u}
 	if in.Lembrar || in.Credencial != "" {
 		out["credencial"] = s.emitirCredencial(u.Login, u.SenhaHash)
@@ -314,7 +320,7 @@ func (s *Server) obterEmpresa(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) salvarEmpresa(w http.ResponseWriter, r *http.Request) {
-	var e store.Empresa
+	e := store.Empresa{UsarCertMatriz: true} // padrão quando o campo não é enviado
 	if err := ler(r, &e); err != nil {
 		erro(w, 400, "JSON inválido")
 		return
@@ -395,7 +401,7 @@ func (s *Server) enviarCertificado(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) obterCertificado(w http.ResponseWriter, r *http.Request) {
-	c, err := s.M.Store.CertificadoAtivo(idPath(r, "id"))
+	c, err := s.M.Store.CertificadoEfetivo(idPath(r, "id"))
 	if err != nil {
 		erro(w, 404, "nenhum certificado cadastrado")
 		return
@@ -457,7 +463,7 @@ func (s *Server) certificadosInstalados(w http.ResponseWriter, r *http.Request) 
 	jsonOK(w, l)
 }
 
-// relatorio gera um relatório do período (?formato=json|pdf|xlsx|xls|csv).
+// relatorio gera um relatório do período (?formato=json|pdf|xlsx|csv).
 func (s *Server) relatorio(w http.ResponseWriter, r *http.Request) {
 	f := filtro(r)
 	f.Todos = true
@@ -514,7 +520,7 @@ func (s *Server) relatorio(w http.ResponseWriter, r *http.Request) {
 	}
 	ct, ok := relatorios.Formatos[formato]
 	if !ok {
-		erro(w, 400, "formato inválido: use pdf, xlsx, xls ou csv")
+		erro(w, 400, "formato inválido: use pdf, xlsx ou csv")
 		return
 	}
 	var buf bytes.Buffer
@@ -1049,8 +1055,21 @@ func (s *Server) exportar(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	// Sem chaves e com filtro na URL (?de=&ate=&modelo=...): exporta todos os documentos do filtro.
+	if len(in.Chaves) == 0 && r.URL.Query().Get("de") != "" {
+		f := filtro(r)
+		f.Todos = true
+		docs, _, err := s.M.Store.ListarDocumentos(f)
+		if err != nil {
+			erro(w, 500, err.Error())
+			return
+		}
+		for _, d := range docs {
+			in.Chaves = append(in.Chaves, d.Chave)
+		}
+	}
 	if len(in.Chaves) == 0 {
-		erro(w, 400, "selecione ao menos um documento")
+		erro(w, 400, "nenhum documento para exportar — selecione notas ou ajuste o filtro")
 		return
 	}
 	comXML, comPDF := in.Formato != "pdf", in.Formato != "xml"
@@ -1173,9 +1192,7 @@ func (s *Server) criarUsuario(w http.ResponseWriter, r *http.Request) {
 		erro(w, 400, "informe login, senha (mín. 8) e perfil")
 		return
 	}
-	switch in.Perfil {
-	case "ADMIN", "FISCAL", "CONSULTA":
-	default:
+	if !perfilValido(in.Perfil) {
 		in.Perfil = "CONSULTA"
 	}
 	h, _ := HashSenha(in.Senha)
@@ -1186,6 +1203,138 @@ func (s *Server) criarUsuario(w http.ResponseWriter, r *http.Request) {
 	}
 	s.M.Store.Auditar(usuario(r), "CRIAR_USUARIO", "usuario", u.Login, u.Perfil)
 	jsonOK(w, u)
+}
+
+func perfilValido(p string) bool {
+	switch p {
+	case "ADMIN", "FISCAL", "CONSULTA":
+		return true
+	}
+	return false
+}
+
+// atualizarUsuario altera nome, perfil, situação e (opcionalmente) a senha.
+func (s *Server) atualizarUsuario(w http.ResponseWriter, r *http.Request) {
+	u, err := s.M.Store.UsuarioPorID(idPath(r, "id"))
+	if err != nil {
+		erro(w, 404, "usuário não encontrado")
+		return
+	}
+	in := struct {
+		Nome   *string `json:"nome"`
+		Perfil *string `json:"perfil"`
+		Ativo  *bool   `json:"ativo"`
+		Senha  string  `json:"senha"`
+	}{}
+	if err := ler(r, &in); err != nil {
+		erro(w, 400, "JSON inválido")
+		return
+	}
+	if in.Nome != nil {
+		u.Nome = strings.TrimSpace(*in.Nome)
+	}
+	if in.Perfil != nil {
+		if !perfilValido(*in.Perfil) {
+			erro(w, 400, "perfil inválido: use ADMIN, FISCAL ou CONSULTA")
+			return
+		}
+		u.Perfil = *in.Perfil
+	}
+	if in.Ativo != nil {
+		u.Ativo = *in.Ativo
+	}
+	if u.Login == usuario(r) && (!u.Ativo || u.Perfil != "ADMIN") {
+		erro(w, 400, "você não pode desativar nem tirar o perfil de administrador do próprio usuário")
+		return
+	}
+	if (u.Perfil != "ADMIN" || !u.Ativo) && s.M.Store.ContarAdminsAtivos(u.ID) == 0 {
+		erro(w, 400, "é preciso manter pelo menos um administrador ativo")
+		return
+	}
+	if in.Senha != "" {
+		if len(in.Senha) < 8 {
+			erro(w, 400, "a senha deve ter ao menos 8 caracteres")
+			return
+		}
+		h, _ := HashSenha(in.Senha)
+		if err := s.M.Store.AlterarSenha(u.ID, h); err != nil {
+			erro(w, 500, err.Error())
+			return
+		}
+		s.M.Store.Auditar(usuario(r), "SENHA_REDEFINIDA", "usuario", u.Login, "")
+	}
+	if err := s.M.Store.AtualizarUsuario(u); err != nil {
+		erro(w, 500, err.Error())
+		return
+	}
+	s.M.Store.Auditar(usuario(r), "ALTERAR_USUARIO", "usuario", u.Login, fmt.Sprintf("perfil %s, ativo %v", u.Perfil, u.Ativo))
+	jsonOK(w, u)
+}
+
+func (s *Server) removerUsuario(w http.ResponseWriter, r *http.Request) {
+	u, err := s.M.Store.UsuarioPorID(idPath(r, "id"))
+	if err != nil {
+		erro(w, 404, "usuário não encontrado")
+		return
+	}
+	if u.Login == usuario(r) {
+		erro(w, 400, "você não pode excluir o próprio usuário")
+		return
+	}
+	if u.Perfil == "ADMIN" && u.Ativo && s.M.Store.ContarAdminsAtivos(u.ID) == 0 {
+		erro(w, 400, "é preciso manter pelo menos um administrador ativo")
+		return
+	}
+	if err := s.M.Store.RemoverUsuario(u.ID); err != nil {
+		erro(w, 500, err.Error())
+		return
+	}
+	s.M.Store.Auditar(usuario(r), "REMOVER_USUARIO", "usuario", u.Login, "")
+	jsonOK(w, map[string]bool{"ok": true})
+}
+
+// eu devolve o usuário da sessão (perfil usado pela tela para mostrar/ocultar ações).
+func (s *Server) eu(w http.ResponseWriter, r *http.Request) {
+	if usuario(r) == "api" {
+		jsonOK(w, map[string]string{"login": "api", "perfil": "INTEGRACAO"})
+		return
+	}
+	u, err := s.M.Store.UsuarioPorLogin(usuario(r))
+	if err != nil {
+		erro(w, 404, "usuário não encontrado")
+		return
+	}
+	jsonOK(w, u)
+}
+
+// trocarSenha altera a senha do próprio usuário (qualquer perfil).
+func (s *Server) trocarSenha(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Atual string `json:"atual"`
+		Nova  string `json:"nova"`
+	}
+	ler(r, &in)
+	u, err := s.M.Store.UsuarioPorLogin(usuario(r))
+	if err != nil {
+		erro(w, 404, "usuário não encontrado")
+		return
+	}
+	if !conferirSenha(in.Atual, u.SenhaHash) {
+		time.Sleep(400 * time.Millisecond)
+		erro(w, 400, "senha atual incorreta")
+		return
+	}
+	if len(in.Nova) < 8 {
+		erro(w, 400, "a nova senha deve ter ao menos 8 caracteres")
+		return
+	}
+	h, _ := HashSenha(in.Nova)
+	if err := s.M.Store.AlterarSenha(u.ID, h); err != nil {
+		erro(w, 500, err.Error())
+		return
+	}
+	s.M.Store.Auditar(u.Login, "TROCAR_SENHA", "usuario", u.Login, "")
+	jsonOK(w, map[string]bool{"ok": true})
 }
 
 func (s *Server) auditoria(w http.ResponseWriter, r *http.Request) {
