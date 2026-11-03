@@ -141,6 +141,12 @@ async function entrar() {
   estado.eu = await api("/auth/eu").catch(() => ({ perfil: "ADMIN" }));
   $("#app").classList.remove("hidden");
   $("#eu-nome").textContent = estado.eu.nome || estado.eu.login || "";
+  // Abre na última empresa consultada por este usuário (guardada no banco do programa).
+  if (estado.eu.ultima_empresa_id !== undefined) {
+    const id = String(estado.eu.ultima_empresa_id || "");
+    estado.empresa = id && estado.empresas.some(e => String(e.id) === id) ? id : "";
+    localStorage.setItem("vtx_emp", estado.empresa); rotuloEmpresa();
+  }
   if (MENU.find(m => m.v === estado.view)?.admin && !ehAdmin()) estado.view = "painel";
   $("#menu").innerHTML = MENU.filter(m => !m.admin || ehAdmin()).map(m => m.grupo ? `<div class="grupo">${m.grupo}</div>` : `<a data-v="${m.v}" title="${m.t}">${svg(m.i)}<span>${m.t}</span></a>`).join("");
   $$("#menu a").forEach(a => a.onclick = () => { estado.pagina = 1; estado.status = ""; estado.modelo = ""; estado.busca = ""; mostrar(a.dataset.v); });
@@ -175,6 +181,7 @@ function listaEmpresas() {
 function escolherEmpresa(id) {
   $("#emp-pop").classList.add("hidden");
   estado.empresa = String(id); localStorage.setItem("vtx_emp", estado.empresa); rotuloEmpresa(); estado.pagina = 1; mostrar(estado.view);
+  api("/auth/eu/empresa", { method: "PUT", json: { empresa_id: +estado.empresa || 0 } }).catch(() => { });
 }
 $("#emp-btn").onclick = ev => {
   ev.stopPropagation(); const p = $("#emp-pop"), abrir = p.classList.contains("hidden");

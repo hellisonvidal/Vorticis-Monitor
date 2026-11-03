@@ -77,3 +77,23 @@ func TestExcluirEmpresa(t *testing.T) {
 		}
 	}
 }
+
+func TestUltimaEmpresaDoUsuario(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := &Empresa{CNPJ: "11222333000181", RazaoSocial: "Empresa", UF: "SP"}
+	s.SalvarEmpresa(e)
+	s.CriarUsuario(&Usuario{Login: "Maria", SenhaHash: "x", Perfil: "FISCAL"})
+	if err := s.SalvarUltimaEmpresa("maria", e.ID); err != nil {
+		t.Fatal(err)
+	}
+	if u, _ := s.UsuarioPorLogin("maria"); u.UltimaEmpresaID != e.ID {
+		t.Fatalf("última empresa = %d", u.UltimaEmpresaID)
+	}
+	s.ExcluirEmpresa(e.ID, false)
+	if u, _ := s.UsuarioPorLogin("maria"); u.UltimaEmpresaID != 0 {
+		t.Fatal("empresa excluída deve voltar para todas as empresas")
+	}
+}

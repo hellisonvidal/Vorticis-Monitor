@@ -25,7 +25,7 @@ import (
 	"vorticis.com.br/monitor/internal/store"
 )
 
-const Versao = "1.9.0"
+const Versao = "1.9.1"
 
 type Server struct {
 	M      *servicos.Monitor
@@ -111,6 +111,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/v1/usuarios/{id}", admin(s.atualizarUsuario))
 	mux.HandleFunc("DELETE /api/v1/usuarios/{id}", admin(s.removerUsuario))
 	mux.HandleFunc("GET /api/v1/auth/eu", auth(s.eu))
+	mux.HandleFunc("PUT /api/v1/auth/eu/empresa", auth(s.salvarUltimaEmpresa))
 	mux.HandleFunc("POST /api/v1/auth/senha", auth(s.trocarSenha))
 	mux.HandleFunc("GET /api/v1/auditoria", admin(s.auditoria))
 	mux.HandleFunc("GET /api/v1/config", admin(s.obterConfig))
@@ -1333,6 +1334,27 @@ func (s *Server) eu(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jsonOK(w, u)
+}
+
+// salvarUltimaEmpresa lembra a empresa escolhida no seletor para o próximo acesso.
+func (s *Server) salvarUltimaEmpresa(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		EmpresaID int64 `json:"empresa_id"`
+	}
+	if err := ler(r, &in); err != nil {
+		erro(w, 400, "JSON inválido")
+		return
+	}
+	if in.EmpresaID > 0 {
+		if _, err := s.M.Store.ObterEmpresa(in.EmpresaID); err != nil {
+			erro(w, 404, "empresa não encontrada")
+			return
+		}
+	}
+	if usuario(r) != "api" {
+		s.M.Store.SalvarUltimaEmpresa(usuario(r), in.EmpresaID)
+	}
+	jsonOK(w, map[string]bool{"ok": true})
 }
 
 // trocarSenha altera a senha do próprio usuário (qualquer perfil).

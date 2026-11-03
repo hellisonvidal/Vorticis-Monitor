@@ -130,7 +130,7 @@ func (s *Server) autenticar(perfis ...string) func(http.HandlerFunc) http.Handle
 					return
 				}
 			}
-			if ss.Perfil == "CONSULTA" && r.Method != http.MethodGet && r.URL.Path != "/api/v1/auth/senha" {
+			if ss.Perfil == "CONSULTA" && r.Method != http.MethodGet && r.URL.Path != "/api/v1/auth/senha" && r.URL.Path != "/api/v1/auth/eu/empresa" {
 				erro(w, http.StatusForbidden, "perfil de consulta não pode alterar dados")
 				return
 			}
