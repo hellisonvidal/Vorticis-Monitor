@@ -1270,9 +1270,9 @@ type Usuario struct {
 	UltimoAcesso string `json:"ultimo_acesso,omitempty"`
 	// UltimaEmpresaID é a última empresa escolhida no seletor (0 = todas); o programa
 	// abre nela no próximo acesso.
-	UltimaEmpresaID int64 `json:"ultima_empresa_id"`
-	CriadoEm     string `json:"criado_em,omitempty"`
-	SenhaHash    string `json:"-"`
+	UltimaEmpresaID int64  `json:"ultima_empresa_id"`
+	CriadoEm        string `json:"criado_em,omitempty"`
+	SenhaHash       string `json:"-"`
 }
 
 func (s *Store) ContarUsuarios() int {
