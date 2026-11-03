@@ -17,7 +17,8 @@ import (
 // conexão segura. Alguns servidores do governo (ex.: o ADN da NFS-e Nacional,
 // atrás de balanceadores/WAF) falham com TLS 1.3 e certificado de cliente,
 // com o key share pós-quântico enviado por padrão desde o Go 1.24 ou com
-// cifras AES-GCM, devolvendo "tls: bad record MAC". O primeiro perfil que
+// cifras AES-GCM, devolvendo "tls: bad record MAC" (o ADN também responde assim,
+// em TLS 1.3, quando recusa o certificado do cliente). O primeiro perfil que
 // funcionar fica memorizado por servidor.
 type perfilTLS struct {
 	nome   string
@@ -60,14 +61,17 @@ func (t *transportes) cliente(i int) *http.Client {
 	}
 	p := perfisTLS[i]
 	cfg := &tls.Config{
-		Certificates:       []tls.Certificate{t.cert},
-		RootCAs:            t.pool,
-		InsecureSkipVerify: !t.verificar, // somente se configurado explicitamente
-		MinVersion:         tls.VersionTLS12,
-		MaxVersion:         p.max,
-		CurvePreferences:   p.curvas,
-		CipherSuites:       p.cifras,
-		Renegotiation:      tls.RenegotiateOnceAsClient,
+		// Envia sempre o certificado da empresa. Com "Certificates" o Go só o envia
+		// quando a cadeia coincide com as ACs anunciadas pelo servidor; o ADN anuncia
+		// apenas as raízes ICP-Brasil e, sem certificado, recusa a conexão.
+		GetClientCertificate: func(*tls.CertificateRequestInfo) (*tls.Certificate, error) { return &t.cert, nil },
+		RootCAs:              t.pool,
+		InsecureSkipVerify:   !t.verificar, // somente se configurado explicitamente
+		MinVersion:           tls.VersionTLS12,
+		MaxVersion:           p.max,
+		CurvePreferences:     p.curvas,
+		CipherSuites:         p.cifras,
+		Renegotiation:        tls.RenegotiateOnceAsClient,
 	}
 	tr := &http.Transport{
 		TLSClientConfig:     cfg,
@@ -111,7 +115,7 @@ func (t *transportes) Do(host string, novo func() (*http.Request, error)) (*http
 	t.mu.Lock()
 	ini, ok := t.porHost[host]
 	t.mu.Unlock()
-	var primeiro error
+	var primeiro, recusa error
 	for k := 0; k < len(perfisTLS); k++ {
 		i := (ini + k) % len(perfisTLS)
 		req, err := novo()
@@ -130,9 +134,31 @@ func (t *transportes) Do(host string, novo func() (*http.Request, error)) (*http
 		if primeiro == nil {
 			primeiro = err
 		}
+		if recusaCertificado(err) {
+			recusa = err
+		}
 		if !erroTLS(err) || req.Context().Err() != nil {
 			return nil, err
 		}
 	}
+	if recusa != nil {
+		return nil, fmt.Errorf("%w — o servidor %s recusou o certificado digital no início da conexão segura. Confira se o certificado é ICP-Brasil (e-CNPJ A1) válido; o monitor envia a cadeia completa (baixando as ACs intermediárias pela internet) — se o computador bloquear esse download, instale a cadeia da AC emissora no Windows ou inclua o .pfx exportado com todos os certificados do caminho", ErrCertificadoRecusado, host)
+	}
 	return nil, fmt.Errorf("%w — a conexão segura falhou em todos os modos de TLS testados; verifique se um antivírus/firewall com inspeção HTTPS (ou proxy) está interceptando o acesso a %s e libere o endereço", primeiro, host)
+}
+
+// ErrCertificadoRecusado: o servidor encerrou o handshake ao avaliar o certificado do cliente.
+var ErrCertificadoRecusado = errors.New("certificado digital recusado pelo servidor")
+
+// recusaCertificado identifica a recusa do certificado do cliente pelo servidor:
+// em TLS 1.2 chega como alerta "handshake failure"/"bad certificate"; em TLS 1.3
+// o alerta vem cifrado com outra chave e aparece como "bad record MAC".
+func recusaCertificado(err error) bool {
+	s := err.Error()
+	for _, m := range []string{"remote error: tls: handshake failure", "remote error: tls: bad certificate", "remote error: tls: unknown certificate authority", "remote error: tls: certificate required", "remote error: tls: unsupported certificate", "remote error: tls: access denied"} {
+		if strings.Contains(s, m) {
+			return true
+		}
+	}
+	return false
 }

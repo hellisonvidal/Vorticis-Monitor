@@ -66,7 +66,7 @@ func trazerInstanciaAberta() {
 }
 
 // executarComJanela inicia o monitor e abre o painel em janela própria do Windows.
-// Fechar a janela encerra o programa.
+// Fechar a janela mantém o programa na bandeja (opção "segundo plano") ou o encerra.
 func executarComJanela(ctx context.Context, cancel context.CancelFunc) error {
 	// Uma instância por pasta de dados: abrir o atalho de novo apenas traz a janela.
 	h := sha1.Sum([]byte(strings.ToLower(config.DiretorioDados())))
@@ -111,9 +111,21 @@ func executarComJanela(ctx context.Context, cancel context.CancelFunc) error {
 	// Janela padrão do Windows (minimizar, maximizar/restaurar e fechar), sempre iniciando
 	// maximizada; na inicialização automática fica minimizada e volta maximizada.
 	hwnd := uintptr(w.Window())
+	// Ícone na bandeja: com "segundo plano" ligado, fechar a janela só a esconde.
+	segundoPlano := func() bool { return monitorAtivo == nil || monitorAtivo.Cfg.SegundoPlano }
+	b := iniciarBandeja(hwnd, segundoPlano)
+	if b != nil {
+		defer b.Encerrar()
+	}
 	procShowWindow.Call(hwnd, 3) // SW_MAXIMIZE
 	if minimizado {
-		procShowWindow.Call(hwnd, 6) // SW_MINIMIZE
+		if b != nil && segundoPlano() {
+			// Inicialização automática: começa só na bandeja, monitorando.
+			b.avisouOculta.Store(true)
+			procShowWindow.Call(hwnd, 0) // SW_HIDE
+		} else {
+			procShowWindow.Call(hwnd, 6) // SW_MINIMIZE
+		}
 	}
 	w.Navigate(ini.url)
 	w.Run()

@@ -52,11 +52,7 @@ func CarregarPFX(pfx []byte, senha string) (*Certificado, error) {
 	if !ok {
 		return nil, errors.New("chave privada do certificado não é RSA")
 	}
-	chain := [][]byte{leaf.Raw}
-	for _, c := range cas {
-		chain = append(chain, c.Raw)
-	}
-	return montarCertificado(leaf, chain, rk, "ARQUIVO"), nil
+	return montarCertificado(leaf, completarCadeia(leaf, cas), rk, "ARQUIVO"), nil
 }
 
 func montarCertificado(leaf *x509.Certificate, chain [][]byte, chave crypto.Signer, origem string) *Certificado {

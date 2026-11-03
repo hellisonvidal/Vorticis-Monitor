@@ -43,6 +43,9 @@ import (
 
 const nomeServico = "VorticisMonitor"
 
+// monitorAtivo é o monitor em execução (usado pela janela/bandeja do Windows).
+var monitorAtivo *servicos.Monitor
+
 var (
 	portatil   bool
 	minimizado bool
@@ -171,6 +174,7 @@ func executar(ctx context.Context, aoIniciar func(url, dataDir string)) error {
 	}
 	defer st.DB.Close()
 	mon := servicos.Novo(st, cfg, cofre)
+	monitorAtivo = mon
 	go mon.Iniciar(ctx)
 	srv := &http.Server{
 		Handler:           (&api.Server{M: mon, Static: web.Static()}).Handler(),

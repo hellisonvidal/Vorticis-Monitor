@@ -36,7 +36,8 @@
     <header class="top">
       <div><h1 id="titulo">Painel</h1><p class="muted" id="subtitulo"></p></div>
       <div class="top-acoes">
-        <select id="empresa-sel" title="Empresa"></select>
+        <div class="emp-sel" id="emp-sel"><button type="button" class="btn" id="emp-btn" title="Empresa (digite o CNPJ ou o nome para pesquisar)"><svg viewBox="0 0 24 24"><path d="M4 21V5l8-3 8 3v16M9 21v-5h6v5"/></svg><span id="emp-rot">Todas as empresas</span><svg viewBox="0 0 24 24" class="seta"><path d="M6 9l6 6 6-6"/></svg></button>
+          <div class="emp-pop hidden" id="emp-pop"><input id="emp-busca" placeholder="Pesquisar por CNPJ ou nome…" autocomplete="off" spellcheck="false"><div class="emp-lista" id="emp-lista"></div></div></div>
         <label class="btn" for="upload" title="Importar XML ou ZIP"><svg viewBox="0 0 24 24"><path d="M12 16V4m0 0l-4 4m4-4l4 4M4 20h16"/></svg> Importar<input id="upload" type="file" multiple accept=".xml,.zip" hidden></label>
         <button class="btn" id="minha-senha" title="Trocar minha senha"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0116 0"/></svg> <span id="eu-nome"></span></button>
         <span class="status-rt" id="rt" title="Atualização em tempo real"><i></i><span>conectando</span></span>
