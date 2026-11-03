@@ -798,11 +798,31 @@ type Resumo struct {
 	ComErro         int                `json:"com_erro"`
 	SemManifestacao int                `json:"sem_manifestacao"`
 	Divergentes     int                `json:"conciliacao_divergente"`
+	// Painel: emitidos (S) e recebidos (E) separados, e quantidade por dia e movimento.
+	PorDirecao map[string]*ResumoDirecao `json:"por_direcao"`
+	PorDia     map[string]map[string]int `json:"por_dia"`
+}
+
+// ResumoDirecao resume um movimento (emitidos ou recebidos) no período.
+type ResumoDirecao struct {
+	Total     int                      `json:"total"`
+	Valor     float64                  `json:"valor"` // autorizados e em contingência
+	PorStatus map[string]int           `json:"por_status"`
+	PorModelo map[string]*ResumoModelo `json:"por_modelo"`
+}
+
+type ResumoModelo struct {
+	Qtd   int     `json:"qtd"`
+	Valor float64 `json:"valor"`
 }
 
 func (s *Store) Resumo(f FiltroDocumentos) (*Resumo, error) {
 	w, a := f.where()
-	r := &Resumo{PorStatus: map[string]int{}, PorModelo: map[string]int{}, ValorPorDir: map[string]float64{}, Tributos: map[string]float64{}}
+	r := &Resumo{PorStatus: map[string]int{}, PorModelo: map[string]int{}, ValorPorDir: map[string]float64{}, Tributos: map[string]float64{},
+		PorDirecao: map[string]*ResumoDirecao{}, PorDia: map[string]map[string]int{}}
+	for _, d := range []string{"S", "E"} {
+		r.PorDirecao[d] = &ResumoDirecao{PorStatus: map[string]int{}, PorModelo: map[string]*ResumoModelo{}}
+	}
 	q := func(sqlq string, fn func(*sql.Rows)) {
 		rows, err := s.DB.Query(sqlq, a...)
 		if err != nil {
@@ -819,6 +839,35 @@ func (s *Store) Resumo(f FiltroDocumentos) (*Resumo, error) {
 		rs.Scan(&k, &n)
 		r.PorStatus[k] = n
 		r.Total += n
+	})
+	q(`SELECT direcao, modelo, status, COUNT(*), COALESCE(SUM(valor_total),0) FROM documento WHERE `+w+` GROUP BY direcao, modelo, status`, func(rs *sql.Rows) {
+		var dir, mod, st string
+		var n int
+		var v float64
+		rs.Scan(&dir, &mod, &st, &n, &v)
+		rd := r.PorDirecao[dir]
+		if rd == nil {
+			return
+		}
+		rd.Total += n
+		rd.PorStatus[st] += n
+		if rd.PorModelo[mod] == nil {
+			rd.PorModelo[mod] = &ResumoModelo{}
+		}
+		rd.PorModelo[mod].Qtd += n
+		if st == "AUTORIZADA" || st == "CONTINGENCIA" {
+			rd.Valor += v
+			rd.PorModelo[mod].Valor += v
+		}
+	})
+	q(`SELECT substr(dh_emissao,1,10), direcao, COUNT(*) FROM documento WHERE `+w+` GROUP BY 1, 2`, func(rs *sql.Rows) {
+		var dia, dir string
+		var n int
+		rs.Scan(&dia, &dir, &n)
+		if r.PorDia[dia] == nil {
+			r.PorDia[dia] = map[string]int{}
+		}
+		r.PorDia[dia][dir] = n
 	})
 	q(`SELECT modelo, COUNT(*) FROM documento WHERE `+w+` GROUP BY modelo`, func(rs *sql.Rows) {
 		var k string

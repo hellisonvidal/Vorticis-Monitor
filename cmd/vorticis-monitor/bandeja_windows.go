@@ -3,11 +3,9 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"runtime"
 	"sync/atomic"
-	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -16,8 +14,7 @@ import (
 // Segundo plano na bandeja do Windows (área de notificação, perto do relógio).
 // Com a opção ligada (Configurações › Sistema), fechar a janela apenas a esconde:
 // o monitoramento automático continua e o ícone da bandeja reabre a janela ou
-// encerra o programa. Quando chegam notas novas com a janela escondida, aparece
-// um aviso do Windows.
+// encerra o programa. As notas novas apenas entram no sistema, sem avisos.
 
 var (
 	shell32                = windows.NewLazySystemDLL("shell32.dll")
@@ -299,30 +296,4 @@ func iniciarBandeja(principal uintptr, segundoPlano func() bool) *bandeja {
 func (b *bandeja) Encerrar() {
 	procShellNotifyIcon.Call(nimDelete, uintptr(unsafe.Pointer(b.dados(0))))
 	procPostMessage.Call(b.hwnd, wmClose, 0, 0)
-}
-
-// avisarNotasNovas mostra uma notificação quando chegam documentos com a janela escondida.
-func (b *bandeja) avisarNotasNovas(eventos <-chan string) {
-	var n int
-	t := time.NewTimer(time.Hour)
-	t.Stop()
-	for {
-		select {
-		case _, ok := <-eventos:
-			if !ok {
-				return
-			}
-			if !b.visivel() {
-				if n == 0 {
-					t.Reset(5 * time.Second)
-				}
-				n++
-			}
-		case <-t.C:
-			if n > 0 {
-				b.Avisar("Vorticis Monitor", fmt.Sprintf("%d documento(s) novo(s) recebido(s). Clique para abrir.", n))
-				n = 0
-			}
-		}
-	}
 }

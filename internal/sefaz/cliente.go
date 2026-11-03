@@ -92,9 +92,25 @@ func (c *Cliente) soap(ctx context.Context, endereco, wsdlNS, corpo string, envo
 		return nil, err
 	}
 	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("SEFAZ respondeu HTTP %d: %s", resp.StatusCode, trunc(string(b), 300))
+		return nil, fmt.Errorf("SEFAZ respondeu HTTP %d: %s", resp.StatusCode, resumoResposta(b))
 	}
 	return b, nil
+}
+
+// resumoResposta mostra o título de páginas de erro HTML (ex.: "403 - Forbidden:
+// Access is denied." quando o servidor recusa o certificado) em vez do HTML inteiro.
+func resumoResposta(b []byte) string {
+	t := string(b)
+	if i := strings.Index(strings.ToLower(t), "<title>"); i >= 0 {
+		if j := strings.Index(strings.ToLower(t[i:]), "</title>"); j > 7 {
+			msg := strings.TrimSpace(t[i+7 : i+j])
+			if strings.HasPrefix(msg, "403") {
+				msg += " (o servidor recusou o certificado digital — confira se é o e-CNPJ ICP-Brasil da empresa e se está válido)"
+			}
+			return msg
+		}
+	}
+	return trunc(strings.TrimSpace(t), 300)
 }
 
 func trunc(s string, n int) string {

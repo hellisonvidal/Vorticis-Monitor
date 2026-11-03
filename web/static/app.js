@@ -208,7 +208,7 @@ function conectarSSE() {
   es.addEventListener("conectado", () => { rt.classList.add("on"); rt.lastElementChild.textContent = "tempo real"; });
   es.onerror = () => { rt.classList.remove("on"); rt.lastElementChild.textContent = "reconectando"; };
   const refresh = () => { clearTimeout(tRefresh); tRefresh = setTimeout(() => { if (VIEWS_DOC.includes(estado.view) && $("#drawer").classList.contains("hidden")) mostrar(estado.view, true); }, 800); };
-  es.addEventListener("documento.novo", e => { const d = JSON.parse(e.data).dados; toast(`${MOD[d.modelo] || d.modelo} nº ${esc(d.numero)} recebido ${stTag(d.status)}`); refresh(); });
+  es.addEventListener("documento.novo", refresh); // sem aviso: as notas novas apenas entram nas telas
   es.addEventListener("documento.status", refresh);
   es.addEventListener("captura.ciclo", () => { if (["nfe", "servicos"].includes(estado.view)) refresh(); else if (estado.view === "config" && estado.abaCfg === "monitoramento") mostrar("config", true); });
 }
@@ -246,6 +246,7 @@ function filtroHTML(extras = "", compacto) {
     <div class="presets">${Object.keys(PRESETS).map(k => `<button type="button" data-p="${k}" class="${estado.preset === k ? "on" : ""}">${ROT_PRESET[k]}</button>`).join("")}</div>
     ${extras}
     <button class="btn primary" id="f-ok">${svg("busca")} Consultar</button>
+    <button type="button" class="btn ghost" id="f-limpar" title="Voltar ao período deste mês e tirar pesquisa, modelo, situação e seleção">${svg("x")} Limpar filtros</button>
   </div>`;
 }
 // O botão azul "Consultar" concentra todas as ações da tela: busca as notas novas
@@ -262,11 +263,16 @@ function ligarFiltro(el, extrasLer) {
     b.textContent = "Consultando…";
     estado.pagina = 1; estado.total = undefined;
     await mostrar(estado.view, true);
-    if (estado.total !== undefined) toast(`Consulta concluída: <b>${estado.total}</b> ${estado.view === "relatorios" ? "linha(s)" : "documento(s)"} de ${dia(estado.de + "T12:00")} a ${dia(estado.ate + "T12:00")}`, "var(--ok)");
   };
   $$(".presets button", el).forEach(b => b.onclick = () => { [estado.de, estado.ate] = PRESETS[b.dataset.p](); estado.preset = b.dataset.p; $("#f-de", el).value = estado.de; $("#f-ate", el).value = estado.ate; aplicar(); });
   $("#f-de", el).onchange = $("#f-ate", el).onchange = () => { estado.preset = ""; };
   $("#f-ok", el).onclick = () => aplicar(true);
+  $("#f-limpar", el).onclick = () => {
+    [estado.de, estado.ate] = PRESETS.mes(); estado.preset = "mes";
+    estado.busca = ""; estado.status = ""; estado.modelo = ""; estado.pagina = 1; estado.sel.clear();
+    if (estado.relFiltro) estado.relFiltro = { direcao: "", modelo: "", status: "" };
+    mostrar(estado.view, true);
+  };
   $$(".filtros input:not([type=date])", el).forEach(i => i.onkeydown = e => { if (e.key === "Enter") aplicar(true); });
 }
 // Busca as notas novas de cada empresa do filtro: NF-e (Distribuição DF-e, inclusive
@@ -291,7 +297,6 @@ async function sincronizar(tipos) {
     if (x.r.ignorado || x.r.c_stat === 656 || x.r.c_stat === 429 || [401, 403].includes(x.r.c_stat) || (x.rot === "NFS-e" && x.r.c_stat >= 400 && x.r.c_stat !== 404))
       avisos.push(`<b>${esc(x.nome)}</b> · ${x.rot}: ${esc(x.r.motivo)}`);
   }
-  toast(novos ? `<b>${novos}</b> documento(s) novo(s) baixado(s)` : "Nenhum documento novo na SEFAZ / Ambiente Nacional", novos ? "var(--ok)" : "");
   if (avisos.length) toast(avisos.join("<br>"), "var(--wa)");
   if (erros.length) toast(erros.join("<br>"), "var(--er)");
 }
@@ -304,25 +309,37 @@ function qsBase(extra = {}) {
 
 /* ---------- Painel ---------- */
 VIEWS.painel = async el => {
-  const [r, lista] = await Promise.all([api("/dashboard/resumo?" + qsBase()), api("/documentos?" + qsBase({ por_pagina: 2000 }))]);
+  const r = await api("/dashboard/resumo?" + qsBase());
   const s = r.por_status || {}; estado.total = r.total;
   const kpi = (st, ic, cor) => `<div class="card kpi" onclick="estado.status='${st}';estado.direcao='';mostrar('documentos')"><div class="ic ${cor}">${svg(ic)}</div><div><div class="n">${s[st] || 0}</div><div class="l">${ST[st]}</div></div></div>`;
-  const porDia = {};
-  lista.itens.forEach(d => { const k = (d.dh_emissao || "").slice(0, 10); if (k) porDia[k] = (porDia[k] || 0) + 1; });
+  // Emitidas x recebidas: um card por movimento, com a quantidade e o valor por modelo.
+  const MODS = ["NFE", "NFCE", "NFSE", "CTE", "MDFE"];
+  const mov = (d, titulo, ic) => {
+    const x = r.por_direcao?.[d] || { total: 0, valor: 0, por_status: {}, por_modelo: {} }, ps = x.por_status || {};
+    const linhas = MODS.filter(m => x.por_modelo?.[m]).map(m => `<tr onclick="estado.direcao='${d}';mostrar('${m === "NFSE" ? "servicos" : ["CTE", "MDFE"].includes(m) ? "transporte" : "nfe"}')"><td>${MOD[m]}</td><td class="n">${x.por_modelo[m].qtd}</td><td class="n">${brl(x.por_modelo[m].valor)}</td></tr>`).join("");
+    return `<div class="card mov mov-${d}"><div class="mov-cab"><div class="ic">${svg(ic)}</div><div><h3>${titulo}</h3><div class="doc-sub">${dia(estado.de + "T12:00")} a ${dia(estado.ate + "T12:00")}</div></div></div>
+      <div class="mov-num"><div><div class="n">${x.total}</div><div class="l">documento(s)</div></div><div><div class="n">${brl(x.valor)}</div><div class="l">valor autorizado</div></div></div>
+      ${linhas ? `<table class="mov-tab"><thead><tr><th>Documento</th><th class="n">Qtd</th><th class="n">Valor autorizado</th></tr></thead><tbody>${linhas}</tbody></table>` : `<p class="muted">Nenhum documento no período.</p>`}
+      <div class="mov-rod"><span>${ps.CANCELADA || 0} cancelada(s)</span><span>${(ps.REJEITADA || 0) + (ps.DENEGADA || 0)} rejeitada(s)/denegada(s)</span>
+      ${d === "E" ? `<a onclick="estado.direcao='E';mostrar('nfe')">${r.sem_manifestacao} NF-e sem manifestação conclusiva</a>` : `<span>${ps.CONTINGENCIA || 0} em contingência</span>`}</div></div>`;
+  };
+  // Documentos por dia: barras agrupadas emitidas x recebidas (um eixo, legenda e dica ao passar o mouse).
   const dias = []; for (let d = new Date(estado.de + "T12:00"); iso(d) <= estado.ate && dias.length < 120; d.setDate(d.getDate() + 1)) dias.push(iso(d));
-  const mx = Math.max(1, ...dias.map(d => porDia[d] || 0));
+  const pd = r.por_dia || {}, mx = Math.max(1, ...dias.map(d => Math.max(pd[d]?.S || 0, pd[d]?.E || 0)));
+  const h = v => `${(v || 0) / mx * 100}%`;
+  const t = r.tributos || {};
   el.innerHTML = filtroHTML() + `
-  <div class="grid g4">${kpi("AUTORIZADA", "ok", "c-ok")}${kpi("CANCELADA", "x", "c-gr")}${kpi("PENDENTE", "relogio", "c-in")}${kpi("CONTINGENCIA", "alerta", "c-wa")}${kpi("REJEITADA", "x", "c-er")}${kpi("DENEGADA", "alerta", "c-er")}</div>
-  <div class="grid g2" style="margin-top:16px">
-    <div class="card"><h3>Documentos por dia</h3><div class="barra">${dias.map(d => `<div style="height:${(porDia[d] || 0) / mx * 100}%" data-t="${dia(d + "T12:00")}: ${porDia[d] || 0}"></div>`).join("")}</div>
-      <div class="muted" style="display:flex;justify-content:space-between;font-size:12px;margin-top:4px"><span>${dia(estado.de + "T12:00")}</span><span>${r.total} documento(s)</span><span>${dia(estado.ate + "T12:00")}</span></div></div>
-    <div class="card"><h3>Movimento no período</h3><div class="kv">
-      <b>Emitidos (autorizados)</b><span><b>${brl(r.valor_por_direcao?.S)}</b></span><b>Recebidos (autorizados)</b><span><b>${brl(r.valor_por_direcao?.E)}</b></span>
-      ${Object.entries(r.por_modelo || {}).map(([k, v]) => `<b>${MOD[k] || k}</b><span>${v} documento(s)</span>`).join("")}
-      <b>Sem manifestação conclusiva</b><span><a onclick="estado.direcao='E';mostrar('nfe')">${r.sem_manifestacao} NF-e recebida(s)</a></span></div></div>
-  </div>
-  <h3 style="margin:22px 0 10px">Últimos documentos do período</h3>${gridDocs(lista.itens.slice(0, 10), false)}`;
-  ligarFiltro(el); ligarGrid(el);
+  <div class="grid g6">${kpi("AUTORIZADA", "ok", "c-ok")}${kpi("CANCELADA", "x", "c-gr")}${kpi("PENDENTE", "relogio", "c-in")}${kpi("CONTINGENCIA", "alerta", "c-wa")}${kpi("REJEITADA", "x", "c-er")}${kpi("DENEGADA", "alerta", "c-er")}</div>
+  <div class="grid g2" style="margin-top:16px">${mov("S", "Notas emitidas", "saida")}${mov("E", "Notas recebidas", "entrada")}</div>
+  <div class="grid g-painel" style="margin-top:16px">
+    <div class="card"><div class="graf-cab"><h3 style="margin:0">Documentos por dia</h3><div class="legenda"><span><i class="s-S"></i>Emitidas</span><span><i class="s-E"></i>Recebidas</span></div></div>
+      <div class="barras2">${dias.map(d => `<div class="dia" data-t="${dia(d + "T12:00")} · emitidas ${pd[d]?.S || 0} · recebidas ${pd[d]?.E || 0}"><i class="s-S" style="height:${h(pd[d]?.S)}"></i><i class="s-E" style="height:${h(pd[d]?.E)}"></i></div>`).join("")}</div>
+      <div class="muted" style="display:flex;justify-content:space-between;font-size:12px;margin-top:4px"><span>${dia(estado.de + "T12:00")}</span><span>máximo de ${mx} documento(s) por dia</span><span>${dia(estado.ate + "T12:00")}</span></div></div>
+    <div class="card"><h3>Tributos do período <span class="doc-sub">(autorizados)</span></h3><div class="kv">
+      <b>ICMS</b><span>${brl(t.icms)}</span><b>ICMS-ST</b><span>${brl(t.icms_st)}</span><b>IPI</b><span>${brl(t.ipi)}</span>
+      <b>PIS / COFINS</b><span>${brl(t.pis)} / ${brl(t.cofins)}</span><b>DIFAL</b><span>${brl(t.difal)}</span><b>ISS / retenções</b><span>${brl(t.iss)} / ${brl(t.retencoes)}</span></div></div>
+  </div>`;
+  ligarFiltro(el);
 };
 
 /* ---------- grid de documentos ---------- */
@@ -360,9 +377,20 @@ $("#sel-limpar").onclick = () => { estado.sel.clear(); mostrar(estado.view, true
 $$("#selecao [data-exp]").forEach(b => b.onclick = () => exportar([...estado.sel], b.dataset.exp));
 async function exportar(chaves, formato) {
   if (!chaves.length) return;
+  if (chaves.length === 1) return baixarUm(chaves[0], formato);
   toast(`Gerando arquivo com ${chaves.length} documento(s)…`);
   try { await baixar(await api("/documentos/exportar", { method: "POST", json: { chaves, formato }, blob: true, tempo: 30 * 60000 }), "documentos.zip"); toast("Exportação concluída — arquivo salvo em Downloads", "var(--ok)"); }
   catch (e) { toast(esc(e.message), "var(--er)"); }
+}
+
+// Um único documento: baixa o XML e/ou o PDF direto, sem ZIP (o ZIP fica para os lotes).
+async function baixarUm(chave, formato) {
+  const c = encodeURIComponent(chave);
+  try {
+    if (formato !== "pdf") await baixar(await api(`/documentos/${c}/xml`, { blob: true }), chave + ".xml");
+    if (formato !== "xml") await baixar(await api(`/documentos/${c}/pdf?baixar=1`, { blob: true }), chave + ".pdf");
+    toast("Arquivo salvo em Downloads", "var(--ok)");
+  } catch (e) { toast(esc(e.message), "var(--er)"); }
 }
 
 /* ---------- consultas de documentos ---------- */

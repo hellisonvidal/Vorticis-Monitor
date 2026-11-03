@@ -116,23 +116,6 @@ func executarComJanela(ctx context.Context, cancel context.CancelFunc) error {
 	b := iniciarBandeja(hwnd, segundoPlano)
 	if b != nil {
 		defer b.Encerrar()
-		if monitorAtivo != nil {
-			sub := monitorAtivo.Hub.Assinar()
-			defer monitorAtivo.Hub.Cancelar(sub)
-			novos := make(chan string, 16)
-			go func() {
-				defer close(novos)
-				for e := range sub {
-					if e.Tipo == "documento.novo" {
-						select {
-						case novos <- e.Tipo:
-						default:
-						}
-					}
-				}
-			}()
-			go b.avisarNotasNovas(novos)
-		}
 	}
 	procShowWindow.Call(hwnd, 3) // SW_MAXIMIZE
 	if minimizado {

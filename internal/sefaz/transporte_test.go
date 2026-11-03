@@ -48,3 +48,10 @@ func TestErroTLS(t *testing.T) {
 type errString string
 
 func (e errString) Error() string { return string(e) }
+
+func TestResumoRespostaHTML(t *testing.T) {
+	r := resumoResposta([]byte("<!DOCTYPE html><html><head><title>403 - Forbidden: Access is denied.</title><style>x</style></head></html>"))
+	if !strings.HasPrefix(r, "403 - Forbidden: Access is denied.") || strings.Contains(r, "<") {
+		t.Fatalf("resumo = %q", r)
+	}
+}
