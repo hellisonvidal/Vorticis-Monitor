@@ -196,7 +196,11 @@ type dadosDANFSe struct {
 	tribISSQN, incidencia, regEsp, exig, retISS, simples, regApSN                                                          string
 	vServ, vDescIncond, vDescCond, vDedRed, vBC, aliq, vISS, vISSRet, vIR, vCP, vCSLL, vPIS, vCOFINS, retPC, vRetFed       string
 	vTotRet, vLiq, totTrib, infCompl                                                                                       string
+	paisPrest, paisResult, tpImunidade, nProcSusp, beneficio, vCalcBM, totFed, totEst, totMun                              string
 }
+
+var tabImunidade = map[string]string{"0": "Imunidade (tipo não informado)", "1": "Patrimônio, renda ou serviços de entes federativos", "2": "Templos de qualquer culto",
+	"3": "Partidos, sindicatos, educação e assistência social sem fins lucrativos", "4": "Livros, jornais, periódicos e papel", "5": "Fonogramas e videofonogramas musicais"}
 
 type parte struct{ doc, im, nome, ender, municipio, cep, fone, email string }
 
@@ -262,8 +266,15 @@ func extrairNacional(r *no) dadosDANFSe {
 	d.simples = tab(tabSimples, dps.v("regTrib/opSimpNac"))
 	d.regApSN = tab(tabRegApSN, dps.v("regTrib/regApTribSN"))
 	if s := tm.v("exigSusp/tpSusp"); s != "" {
-		d.exig = "Exigibilidade suspensa (" + s + ") processo " + tm.v("exigSusp/nProcesso")
+		d.exig = map[string]string{"1": "Suspensa por decisão judicial", "2": "Suspensa por processo administrativo"}[s]
+		d.nProcSusp = tm.v("exigSusp/nProcesso")
 	}
+	if c := tm.v("tpImunidade"); c != "" {
+		d.tpImunidade = tab(tabImunidade, c)
+	}
+	d.paisPrest, d.paisResult = dps.v("locPrest/cPaisPrestacao"), tm.v("cPaisResult")
+	d.beneficio = tm.v("BM/nBM")
+	d.vCalcBM = inf.v("valores/vCalcBM")
 	d.retISS = tab(tabRetISSQN, tm.v("tpRetISSQN"))
 	vals := dps.em("valores")
 	d.vServ = vals.v("vServPrest/vServ")
@@ -286,9 +297,9 @@ func extrairNacional(r *no) dadosDANFSe {
 	if tt := dps.em("totTrib"); tt != nil {
 		switch {
 		case tt.em("vTotTrib") != nil:
-			d.totTrib = fmt.Sprintf("Federais %s · Estaduais %s · Municipais %s", moeda(tt.v("vTotTribFed")), moeda(tt.v("vTotTribEst")), moeda(tt.v("vTotTribMun")))
+			d.totFed, d.totEst, d.totMun = moeda(tt.v("vTotTribFed")), moeda(tt.v("vTotTribEst")), moeda(tt.v("vTotTribMun"))
 		case tt.em("pTotTrib") != nil:
-			d.totTrib = fmt.Sprintf("Federais %s · Estaduais %s · Municipais %s", pct(tt.v("pTotTribFed")), pct(tt.v("pTotTribEst")), pct(tt.v("pTotTribMun")))
+			d.totFed, d.totEst, d.totMun = pct(tt.v("pTotTribFed")), pct(tt.v("pTotTribEst")), pct(tt.v("pTotTribMun"))
 		case tt.v("pTotTribSN") != "":
 			d.totTrib = "Simples Nacional: " + pct(tt.v("pTotTribSN"))
 		case tt.v("indTotTrib") == "0":
@@ -368,7 +379,13 @@ func extrairABRASF(r *no) dadosDANFSe {
 		d.vISSRet = d.vISS
 	}
 	d.vIR, d.vCP, d.vCSLL, d.vPIS, d.vCOFINS = v.v("ValorIr"), v.v("ValorInss"), v.v("ValorCsll"), v.v("ValorPis"), v.v("ValorCofins")
-	d.retPC = "-"
+	d.retPC = "Não retido"
+	if f, _ := strconv.ParseFloat(d.vPIS, 64); f > 0 {
+		d.retPC = "Retido" // no ABRASF, PIS/COFINS informados são retenções
+	}
+	if f, _ := strconv.ParseFloat(d.vCOFINS, 64); f > 0 {
+		d.retPC = "Retido"
+	}
 	d.vLiq = ou(inf.v("ValoresNfse/ValorLiquidoNfse"), v.v("ValorLiquidoNfse"))
 	d.infCompl = juntar(" · ", inf.v("OutrasInformacoes"), decl.v("InformacoesComplementares"))
 	return d
@@ -381,7 +398,12 @@ func dataBR(s string) string {
 	return s
 }
 
-// DANFSe gera o PDF completo da NFS-e a partir do XML armazenado.
+// DANFSe gera o PDF da NFS-e no formato do DANFSe v1.0 do Portal Nacional da
+// NFS-e: cabeçalho com selo, título e município; chave com QR Code de
+// autenticidade; seções separadas por linhas finas (Emitente, Tomador,
+// Intermediário, Serviço Prestado, Tributação Municipal, Tributação Federal,
+// Valor Total, Totais Aproximados dos Tributos, Informações Complementares) com
+// os campos em grade de quatro colunas. Lido direto do XML (Nacional ou ABRASF).
 func DANFSe(w io.Writer, doc *store.Documento) error {
 	r := lerArvore([]byte(doc.XML))
 	var d dadosDANFSe
@@ -402,118 +424,171 @@ func DANFSe(w io.Writer, doc *store.Documento) error {
 	if d.toma.nome == "" && doc.DestNome != "" {
 		d.toma.nome, d.toma.doc = doc.DestNome, formatarDoc(doc.DestDoc)
 	}
+	f := func(s string) float64 { v, _ := strconv.ParseFloat(s, 64); return v }
+	fs := func(v float64) string {
+		if v == 0 {
+			return ""
+		}
+		return strconv.FormatFloat(v, 'f', 2, 64)
+	}
+	// Retenções federais e PIS/COFINS de apuração própria, como no DANFSe nacional.
+	retido := d.retPC == "Retido"
+	contribRet, pcProprio := f(d.vCSLL), 0.0
+	var descRet []string
+	if retido {
+		contribRet += f(d.vPIS) + f(d.vCOFINS)
+		if f(d.vPIS) > 0 {
+			descRet = append(descRet, "PIS")
+		}
+		if f(d.vCOFINS) > 0 {
+			descRet = append(descRet, "COFINS")
+		}
+	} else {
+		pcProprio = f(d.vPIS) + f(d.vCOFINS)
+	}
+	if f(d.vCSLL) > 0 {
+		descRet = append(descRet, "CSLL")
+	}
+	totalRetFed := f(d.vIR) + f(d.vCP) + contribRet
 
 	pdf := fpdf.New("P", "mm", "A4", "")
 	tr := pdf.UnicodeTranslatorFromDescriptor("cp1252")
-	const x0, L = 8.0, 194.0
-	pdf.SetMargins(x0, 8, x0)
-	pdf.SetAutoPageBreak(true, 12)
-	pdf.SetTitle(tr("NFS-e "+d.numero), false)
+	const x0, L, fim = 10.0, 190.0, 284.0
+	pdf.SetMargins(x0, 9, x0)
+	pdf.SetAutoPageBreak(false, 0)
+	pdf.SetTitle(tr("DANFSe "+d.numero), false)
 	pdf.SetCreator("Vorticis Monitor", false)
-	pdf.SetFooterFunc(func() {
-		pdf.SetY(-10)
-		pdf.SetFont("Helvetica", "", 6)
-		pdf.CellFormat(L, 4, tr(fmt.Sprintf("DANFSe gerado pelo Vorticis Monitor a partir do XML da NFS-e - página %d", pdf.PageNo())), "", 0, "C", false, 0, "")
-	})
-	pdf.AddPage()
+	cinza := func() { pdf.SetDrawColor(150, 150, 150); pdf.SetLineWidth(0.25) }
+	cinza()
 
-	// cel é um campo com rótulo e valor; a linha cresce até caber o maior valor.
-	type cel struct {
-		w             float64 // fração da largura
-		rotulo, valor string
-		negrito       bool
+	type campo struct {
+		span     int // colunas ocupadas (de 4)
+		rot, val string
 	}
-	linha := func(cs ...cel) {
-		const hr, hl = 3.0, 3.6
+	y := 9.0
+	novaPagina := func() {
+		pdf.AddPage()
+		y = 9
+	}
+	// grade desenha uma linha de campos (rótulo em negrito pequeno, valor abaixo).
+	grade := func(x, largura float64, cols int, cs ...campo) {
+		cw := largura / float64(cols)
 		alt := 0.0
 		for _, c := range cs {
-			pdf.SetFont("Helvetica", map[bool]string{true: "B", false: ""}[c.negrito], 7.5)
-			n := len(pdf.SplitLines([]byte(tr(ou(c.valor))), c.w*L-2))
-			alt = max(alt, hr+float64(max(1, n))*hl+1)
+			pdf.SetFont("Helvetica", "", 7.2)
+			n := len(pdf.SplitLines([]byte(tr(ou(c.val))), cw*float64(c.span)-1.5))
+			alt = max(alt, 3+float64(max(1, n))*3.2+1.2)
 		}
-		if pdf.GetY()+alt > 285 {
-			pdf.AddPage()
+		if y+alt > fim {
+			novaPagina()
 		}
-		y, x := pdf.GetY(), x0
+		cx := x
 		for _, c := range cs {
-			cw := c.w * L
-			pdf.Rect(x, y, cw, alt, "D")
-			pdf.SetFont("Helvetica", "", 5.5)
-			pdf.SetTextColor(70, 70, 70)
-			pdf.SetXY(x+1, y+0.6)
-			pdf.CellFormat(cw-2, 2.4, tr(strings.ToUpper(c.rotulo)), "", 0, "L", false, 0, "")
-			pdf.SetTextColor(0, 0, 0)
-			pdf.SetFont("Helvetica", map[bool]string{true: "B", false: ""}[c.negrito], 7.5)
-			pdf.SetXY(x+1, y+hr)
-			pdf.MultiCell(cw-2, hl, tr(ou(c.valor)), "", "L", false)
-			x += cw
+			w := cw * float64(c.span)
+			pdf.SetFont("Helvetica", "B", 5.8)
+			pdf.SetXY(cx, y+0.4)
+			pdf.CellFormat(w-1, 2.6, tr(c.rot), "", 0, "L", false, 0, "")
+			pdf.SetFont("Helvetica", "", 7.2)
+			pdf.SetXY(cx, y+3)
+			if c.rot != "" || c.val != "" { // campo vazio sem rótulo = espaço
+				pdf.MultiCell(w-1.5, 3.2, tr(ou(c.val)), "", "L", false)
+			}
+			cx += w
 		}
-		pdf.SetXY(x0, y+alt)
+		y += alt
 	}
-	secao := func(t string) {
-		if pdf.GetY() > 270 {
-			pdf.AddPage()
+	secao := func(t, sub string) {
+		if y+12 > fim {
+			novaPagina()
 		}
-		pdf.SetFillColor(225, 232, 238)
-		pdf.SetFont("Helvetica", "B", 7.5)
-		pdf.CellFormat(L, 5, tr(t), "1", 1, "L", true, 0, "")
+		pdf.Line(x0, y, x0+L, y)
+		y += 1
+		pdf.SetFont("Helvetica", "B", 7.2)
+		pdf.SetXY(x0, y)
+		pdf.CellFormat(L, 3.6, tr(t), "", 0, "L", false, 0, "")
+		if sub != "" {
+			pdf.SetFont("Helvetica", "", 6.5)
+			pdf.SetXY(x0+pdf.GetStringWidth(tr(t))+30, y)
+			pdf.CellFormat(80, 3.6, tr(sub), "", 0, "L", false, 0, "")
+		}
+		y += 4
 	}
 
-	// Cabeçalho
-	if a := avisoStatus(doc); a != "" || d.homologacao != "" {
-		pdf.SetTextColor(190, 20, 20)
-		pdf.SetFont("Helvetica", "B", 11)
-		pdf.CellFormat(L, 6, tr(juntar(" · ", a, d.homologacao)), "", 1, "C", false, 0, "")
+	pdf.AddPage()
+	// Marca d'água (cancelada / sem validade)
+	marca := map[string]string{"CANCELADA": "CANCELADA", "DENEGADA": "DENEGADA"}[doc.Status]
+	if marca == "" && d.homologacao != "" {
+		marca = "SEM VALIDADE JURÍDICA"
+	}
+	if marca != "" {
+		pdf.SetAlpha(0.12, "Normal")
+		pdf.SetTextColor(200, 30, 30)
+		pdf.SetFont("Helvetica", "B", 48)
+		pdf.TransformBegin()
+		pdf.TransformRotate(38, 105, 160)
+		pdf.SetXY(0, 152)
+		pdf.CellFormat(210, 20, tr(marca), "", 0, "C", false, 0, "")
+		pdf.TransformEnd()
+		pdf.SetAlpha(1, "Normal")
 		pdf.SetTextColor(0, 0, 0)
 	}
-	y0 := pdf.GetY()
-	const hc = 30.0
-	pdf.SetDrawColor(90, 90, 90)
-	pdf.SetLineWidth(0.2)
-	pdf.Rect(x0, y0, L, hc, "D")
-	// Selo "NFS-e" (marca gráfica do documento; não é o logotipo oficial)
+
+	// Cabeçalho: selo NFS-e | título | município emissor
 	pdf.SetFillColor(14, 94, 140)
-	pdf.RoundedRect(x0+3, y0+4, 17, 11, 1.8, "1234", "F")
+	pdf.RoundedRect(x0, y+1, 16, 10, 1.6, "14", "F")
 	pdf.SetFillColor(32, 150, 90)
-	pdf.RoundedRect(x0+20, y0+4, 11, 11, 1.8, "1234", "F")
-	pdf.SetFillColor(14, 94, 140)
-	pdf.Rect(x0+18, y0+4, 3, 11, "F")
+	pdf.RoundedRect(x0+16, y+1, 10, 10, 1.6, "23", "F")
 	pdf.SetTextColor(255, 255, 255)
-	pdf.SetFont("Helvetica", "B", 12.5)
-	pdf.SetXY(x0+3, y0+4)
-	pdf.CellFormat(17, 11, "NFS", "", 0, "C", false, 0, "")
-	pdf.SetXY(x0+20, y0+4)
-	pdf.CellFormat(11, 11, "-e", "", 0, "C", false, 0, "")
-	pdf.SetTextColor(60, 60, 60)
-	pdf.SetFont("Helvetica", "", 5.2)
-	pdf.SetXY(x0+2, y0+16.5)
-	pdf.MultiCell(30, 2.4, tr("Nota Fiscal de Serviço\neletrônica"), "", "C", false)
+	pdf.SetFont("Helvetica", "B", 11.5)
+	pdf.SetXY(x0, y+1)
+	pdf.CellFormat(16, 10, "NFS", "", 0, "C", false, 0, "")
+	pdf.SetXY(x0+16, y+1)
+	pdf.CellFormat(10, 10, "-e", "", 0, "C", false, 0, "")
 	pdf.SetTextColor(0, 0, 0)
-	// Título
-	pdf.SetXY(x0+36, y0+3.5)
-	pdf.SetFont("Helvetica", "B", 16)
-	pdf.CellFormat(70, 7, "DANFSe", "", 2, "L", false, 0, "")
-	pdf.SetFont("Helvetica", "", 7.5)
-	pdf.CellFormat(70, 3.6, tr("Documento Auxiliar da NFS-e"), "", 2, "L", false, 0, "")
-	pdf.SetFont("Helvetica", "", 6.5)
-	pdf.CellFormat(70, 3.4, tr(map[string]string{"NACIONAL": "Padrão Nacional · Sistema Nacional NFS-e", "ABRASF": "Padrão ABRASF · emitida pela prefeitura"}[d.padrao]), "", 2, "L", false, 0, "")
-	pdf.SetFont("Helvetica", "B", 7.5)
-	pdf.CellFormat(70, 4, tr("Município emissor: "+ou(d.municipioEmissor)), "", 2, "L", false, 0, "")
-	if d.codVerif != "" {
-		pdf.SetFont("Helvetica", "", 6.5)
-		pdf.CellFormat(70, 3.4, tr("Código de verificação: "+d.codVerif), "", 2, "L", false, 0, "")
-	}
-	// Logotipo do prestador (quando é empresa cadastrada com logotipo)
 	if lg := registrarLogo(pdf, fiscal.SoDigitos(d.prest.doc)); lg != "" {
-		desenharLogo(pdf, lg, x0+110, y0+3, 46, hc-6)
+		desenharLogo(pdf, lg, x0+29, y, 26, 13)
 	}
-	// QR Code da consulta pública (Padrão Nacional)
+	pdf.SetXY(x0+55, y+1)
+	pdf.SetFont("Helvetica", "B", 12)
+	pdf.CellFormat(80, 5.5, "DANFSe v1.0", "", 2, "C", false, 0, "")
+	pdf.SetFont("Helvetica", "B", 8)
+	pdf.CellFormat(80, 4, tr("Documento Auxiliar da NFS-e"), "", 2, "C", false, 0, "")
+	pdf.SetXY(x0+135, y+1)
+	pdf.SetFont("Helvetica", "B", 7.5)
+	pdf.MultiCell(55, 3.4, tr(ou(d.municipioEmissor)), "", "R", false)
+	pdf.SetFont("Helvetica", "", 6.3)
+	pdf.SetX(x0 + 135)
+	sub := "Município emissor da NFS-e"
+	if d.padrao == "ABRASF" {
+		sub = "Prefeitura emissora (padrão ABRASF)"
+	}
+	pdf.MultiCell(55, 3, tr(sub), "", "R", false)
+	y += 14
+	if aviso := juntar(" · ", avisoStatus(doc), d.homologacao); aviso != "" {
+		pdf.SetTextColor(190, 20, 20)
+		pdf.SetFont("Helvetica", "B", 8.5)
+		pdf.SetXY(x0, y)
+		pdf.CellFormat(L, 4.5, tr(aviso), "", 0, "C", false, 0, "")
+		pdf.SetTextColor(0, 0, 0)
+		y += 5
+	}
+
+	// Identificação + QR Code
+	pdf.Line(x0, y, x0+L, y)
+	y += 1
+	yIni := y
+	larg := 150.0
+	grade(x0, larg, 3, campo{3, "Chave de Acesso da NFS-e", formatarChave(d.chave)})
+	grade(x0, larg, 3, campo{1, "Número da NFS-e", d.numero}, campo{1, "Competência da NFS-e", d.competencia}, campo{1, "Data e Hora da emissão da NFS-e", d.emissaoNFSe})
+	grade(x0, larg, 3, campo{1, "Número da DPS", d.numDPS}, campo{1, "Série da DPS", d.serieDPS}, campo{1, "Data e Hora da emissão da DPS", d.emissaoDPS})
+	if d.codVerif != "" {
+		grade(x0, larg, 3, campo{3, "Código de verificação", d.codVerif})
+	}
 	if c := fiscal.SoDigitos(d.chave); len(c) >= 44 && c == d.chave {
-		url := "https://www.nfse.gov.br/ConsultaPublica/?tpc=1&chave=" + c
-		if q, err := qr.Encode(url, qr.M); err == nil {
-			lado := 23.0
+		if q, err := qr.Encode("https://www.nfse.gov.br/ConsultaPublica/?tpc=1&chave="+c, qr.M); err == nil {
+			lado := 19.0
 			m := lado / float64(q.Size)
-			qx, qy := x0+L-lado-9, y0+2
+			qx, qy := x0+larg+(40-lado)/2, yIni+0.5
 			pdf.SetFillColor(0, 0, 0)
 			for yy := 0; yy < q.Size; yy++ {
 				for xx := 0; xx < q.Size; xx++ {
@@ -522,62 +597,82 @@ func DANFSe(w io.Writer, doc *store.Documento) error {
 					}
 				}
 			}
-			pdf.SetFont("Helvetica", "", 5.2)
-			pdf.SetXY(qx-8, qy+lado+0.6)
-			pdf.CellFormat(lado+16, 2.4, tr("Consulta pública: nfse.gov.br"), "", 0, "C", false, 0, "")
+			pdf.SetFont("Helvetica", "", 4.6)
+			pdf.SetXY(x0+larg, qy+lado+0.5)
+			pdf.MultiCell(40, 1.9, tr("A autenticidade desta NFS-e pode ser verificada pela leitura deste código QR ou pela consulta da chave de acesso no portal nacional da NFS-e"), "", "C", false)
+			y = max(y, pdf.GetY()+0.5)
 		}
 	}
-	pdf.SetXY(x0, y0+hc)
-	if d.chave != "" {
-		linha(cel{1, "Chave de acesso da NFS-e", formatarChave(d.chave), true})
-	}
-	linha(cel{0.2, "Número da NFS-e", d.numero, true}, cel{0.2, "Competência", d.competencia, false}, cel{0.2, "Data e hora da emissão da NFS-e", d.emissaoNFSe, false},
-		cel{0.14, "Número da DPS / RPS", d.numDPS, false}, cel{0.1, "Série", d.serieDPS, false}, cel{0.16, "Emissão da DPS / RPS", d.emissaoDPS, false})
 
-	partes := func(t string, p parte) {
-		secao(t)
-		linha(cel{0.24, "CNPJ / CPF / NIF", p.doc, true}, cel{0.18, "Inscrição municipal", p.im, false}, cel{0.58, "Nome / Nome empresarial", p.nome, true})
-		linha(cel{0.5, "Endereço", p.ender, false}, cel{0.3, "Município", p.municipio, false}, cel{0.2, "CEP", p.cep, false})
-		if p.fone != "" || p.email != "" {
-			linha(cel{0.3, "Telefone", p.fone, false}, cel{0.7, "E-mail", p.email, false})
+	parteGrade := func(titulo string, p parte, emitente bool) {
+		secao(titulo, map[bool]string{true: "Prestador do Serviço", false: ""}[emitente])
+		grade(x0, L, 4, campo{2, "CNPJ / CPF / NIF", p.doc}, campo{1, "Inscrição Municipal", p.im}, campo{1, "Telefone", fone(p.fone)})
+		grade(x0, L, 4, campo{2, "Nome / Nome Empresarial", p.nome}, campo{2, "E-mail", p.email})
+		grade(x0, L, 4, campo{2, "Endereço", p.ender}, campo{1, "Município", p.municipio}, campo{1, "CEP", p.cep})
+		if emitente {
+			grade(x0, L, 4, campo{2, "Simples Nacional na Data de Competência", d.simples}, campo{2, "Regime de Apuração Tributária pelo SN", d.regApSN})
 		}
 	}
-	partes("PRESTADOR DO SERVIÇO (EMITENTE DA NFS-e)", d.prest)
-	linha(cel{0.4, "Simples Nacional na data de competência", d.simples, false}, cel{0.35, "Regime de apuração tributária pelo SN", ou(d.regApSN), false}, cel{0.25, "Regime especial de tributação", d.regEsp, false})
+	parteGrade("EMITENTE DA NFS-e", d.prest, true)
 	if d.toma.nome != "" || d.toma.doc != "" {
-		partes("TOMADOR DO SERVIÇO", d.toma)
+		parteGrade("TOMADOR DO SERVIÇO", d.toma, false)
 	} else {
-		secao("TOMADOR DO SERVIÇO")
-		linha(cel{1, "Tomador", "Não identificado na NFS-e", false})
+		secao("TOMADOR DO SERVIÇO", "NÃO IDENTIFICADO NA NFS-e")
 	}
 	if d.interm.nome != "" || d.interm.doc != "" {
-		partes("INTERMEDIÁRIO DO SERVIÇO", d.interm)
+		parteGrade("INTERMEDIÁRIO DO SERVIÇO", d.interm, false)
+	} else {
+		secao("INTERMEDIÁRIO DO SERVIÇO", "NÃO IDENTIFICADO NA NFS-e")
 	}
 
-	secao("SERVIÇO PRESTADO")
-	linha(cel{0.5, "Código de tributação nacional", juntar(" - ", d.cTribNac, d.xTribNac), false}, cel{0.5, "Código de tributação municipal", juntar(" - ", d.cTribMun, d.xTribMun), false})
-	linha(cel{0.4, "Local da prestação", d.localPrestacao, false}, cel{0.35, "NBS", d.nbs, false}, cel{0.25, "CNAE", d.cnae, false})
-	linha(cel{1, "Descrição do serviço", d.descricao, false})
+	secao("SERVIÇO PRESTADO", "")
+	grade(x0, L, 4, campo{2, "Código de Tributação Nacional", juntar(" - ", d.cTribNac, d.xTribNac)}, campo{1, "Código de Tributação Municipal", juntar(" - ", d.cTribMun, d.xTribMun)},
+		campo{1, "Local da Prestação", d.localPrestacao})
+	grade(x0, L, 4, campo{2, "País da Prestação", d.paisPrest}, campo{1, "Código NBS", d.nbs}, campo{1, "CNAE", d.cnae})
+	grade(x0, L, 4, campo{4, "Descrição do Serviço", d.descricao})
 
-	secao("TRIBUTAÇÃO MUNICIPAL (ISSQN)")
-	linha(cel{0.3, "Tributação do ISSQN", d.tribISSQN, false}, cel{0.3, "Município de incidência do ISSQN", d.incidencia, false}, cel{0.4, "Retenção do ISSQN", d.retISS, false})
-	if d.exig != "" {
-		linha(cel{1, "Exigibilidade", d.exig, false})
+	secao("TRIBUTAÇÃO MUNICIPAL", "")
+	grade(x0, L, 4, campo{1, "Tributação do ISSQN", d.tribISSQN}, campo{1, "País Resultado da Prestação do Serviço", d.paisResult},
+		campo{1, "Município de Incidência do ISSQN", d.incidencia}, campo{1, "Regime Especial de Tributação", d.regEsp})
+	grade(x0, L, 4, campo{1, "Tipo de Imunidade", d.tpImunidade}, campo{1, "Suspensão da Exigibilidade do ISSQN", ou(d.exig, "Não")},
+		campo{1, "Número Processo Suspensão", d.nProcSusp}, campo{1, "Benefício Municipal", d.beneficio})
+	grade(x0, L, 4, campo{1, "Valor do Serviço", moeda(d.vServ)}, campo{1, "Desconto Incondicionado", moeda(d.vDescIncond)},
+		campo{1, "Total Deduções/Reduções", moeda(d.vDedRed)}, campo{1, "Cálculo do BM", moeda(d.vCalcBM)})
+	grade(x0, L, 4, campo{1, "BC ISSQN", moeda(d.vBC)}, campo{1, "Alíquota Aplicada", pct(d.aliq)},
+		campo{1, "Retenção do ISSQN", d.retISS}, campo{1, "ISSQN Apurado", moeda(d.vISS)})
+
+	secao("TRIBUTAÇÃO FEDERAL", "")
+	grade(x0, L, 4, campo{1, "IRRF", moeda(d.vIR)}, campo{1, "Contribuição Previdenciária - Retida", moeda(d.vCP)},
+		campo{1, "Contribuições Sociais - Retidas", moeda(fs(contribRet))}, campo{1, "Descrição Contrib. Sociais - Retidas", strings.Join(descRet, " / ")})
+	pisP, cofP := "", ""
+	if !retido {
+		pisP, cofP = d.vPIS, d.vCOFINS
 	}
-	linha(cel{0.2, "Valor do serviço", moeda(d.vServ), true}, cel{0.2, "Desconto incondicionado", moeda(d.vDescIncond), false}, cel{0.2, "Deduções / reduções", moeda(d.vDedRed), false},
-		cel{0.15, "Base de cálculo", moeda(d.vBC), false}, cel{0.1, "Alíquota", pct(d.aliq), false}, cel{0.15, "ISSQN apurado", moeda(d.vISS), true})
+	grade(x0, L, 4, campo{1, "PIS - Débito Apuração Própria", moeda(pisP)}, campo{1, "COFINS - Débito Apuração Própria", moeda(cofP)})
 
-	secao("TRIBUTAÇÃO FEDERAL")
-	linha(cel{0.16, "IRRF retido", moeda(d.vIR), false}, cel{0.16, "CP / INSS retido", moeda(d.vCP), false}, cel{0.16, "CSLL retida", moeda(d.vCSLL), false},
-		cel{0.16, "PIS", moeda(d.vPIS), false}, cel{0.16, "COFINS", moeda(d.vCOFINS), false}, cel{0.2, "Retenção do PIS / COFINS", d.retPC, false})
+	secao("VALOR TOTAL DA NFS-E", "")
+	grade(x0, L, 4, campo{1, "Valor do Serviço", moeda(d.vServ)}, campo{1, "Desconto Condicionado", moeda(d.vDescCond)},
+		campo{1, "Desconto Incondicionado", moeda(d.vDescIncond)}, campo{1, "ISSQN Retido", moeda(d.vISSRet)})
+	liq := d.vLiq
+	if liq == "" {
+		liq = fmt.Sprintf("%.2f", doc.ValorTotal)
+	}
+	grade(x0, L, 4, campo{1, "Total das Retenções Federais", moeda(fs(totalRetFed))}, campo{1, "PIS/COFINS - Débito Apur. Própria", moeda(fs(pcProprio))},
+		campo{1, "", ""}, campo{1, "Valor Líquido da NFS-e", moeda(liq)})
 
-	secao("VALOR TOTAL DA NFS-e")
-	linha(cel{0.2, "Valor do serviço", moeda(d.vServ), false}, cel{0.2, "Desconto condicionado", moeda(d.vDescCond), false}, cel{0.2, "Desconto incondicionado", moeda(d.vDescIncond), false},
-		cel{0.2, "ISSQN retido", moeda(d.vISSRet), false}, cel{0.2, "Total de retenções", moeda(d.vTotRet), false})
-	linha(cel{0.6, "Valor aproximado dos tributos", d.totTrib, false}, cel{0.4, "Valor líquido da NFS-e", moeda(ou(d.vLiq, fmt.Sprintf("%.2f", doc.ValorTotal))), true})
+	secao("TOTAIS APROXIMADOS DOS TRIBUTOS", "")
+	grade(x0, L, 3, campo{1, "Federais", d.totFed}, campo{1, "Estaduais", d.totEst}, campo{1, "Municipais", d.totMun})
+	if d.totTrib != "" && d.totFed == "" && d.totEst == "" && d.totMun == "" {
+		grade(x0, L, 3, campo{3, "Observação", d.totTrib})
+	}
 
-	secao("INFORMAÇÕES COMPLEMENTARES")
-	info := juntar(" · ", d.infCompl, "Situação no monitor: "+doc.Status)
-	linha(cel{1, "Informações complementares", info, false})
+	secao("INFORMAÇÕES COMPLEMENTARES", "")
+	grade(x0, L, 4, campo{4, "", juntar(" · ", d.infCompl)})
+	pdf.Line(x0, y, x0+L, y)
+
+	pdf.SetFont("Helvetica", "", 5.5)
+	pdf.SetTextColor(120, 120, 120)
+	pdf.SetXY(x0, fim+4)
+	pdf.CellFormat(L, 3, tr(fmt.Sprintf("DANFSe gerado pelo Vorticis Monitor a partir do XML da NFS-e · situação no monitor: %s", doc.Status)), "", 0, "C", false, 0, "")
 	return pdf.Output(w)
 }
