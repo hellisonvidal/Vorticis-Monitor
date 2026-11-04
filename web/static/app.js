@@ -142,12 +142,10 @@ async function entrar() {
   estado.eu = await api("/auth/eu").catch(() => ({ perfil: "ADMIN" }));
   $("#app").classList.remove("hidden");
   $("#eu-nome").textContent = estado.eu.nome || estado.eu.login || "";
-  // Abre na última empresa consultada por este usuário (guardada no banco do programa).
-  if (estado.eu.ultima_empresa_id !== undefined) {
-    const id = String(estado.eu.ultima_empresa_id || "");
-    estado.empresa = id && estado.empresas.some(e => String(e.id) === id) ? id : "";
-    localStorage.setItem("vtx_emp", estado.empresa); rotuloEmpresa();
-  }
+  // Abre na última empresa (ou grupo matriz + filiais) consultada por este usuário.
+  if (estado.eu.ultima_raiz) estado.empresa = "r:" + estado.eu.ultima_raiz;
+  else if (estado.eu.ultima_empresa_id) estado.empresa = String(estado.eu.ultima_empresa_id);
+  validarEmpresa();
   if (MENU.find(m => m.v === estado.view)?.admin && !ehAdmin()) estado.view = "painel";
   $("#menu").innerHTML = MENU.filter(m => !m.admin || ehAdmin()).map(m => m.grupo ? `<div class="grupo">${m.grupo}</div>` : `<a data-v="${m.v}" title="${m.t}">${svg(m.i)}<span>${m.t}</span></a>`).join("");
   $$("#menu a").forEach(a => a.onclick = () => { estado.pagina = 1; estado.status = ""; estado.modelo = ""; estado.busca = ""; mostrar(a.dataset.v); });
@@ -155,8 +153,7 @@ async function entrar() {
 }
 async function carregarEmpresas() {
   estado.empresas = await api("/empresas");
-  if (estado.empresa && !estado.empresas.some(e => String(e.id) === estado.empresa)) { estado.empresa = ""; localStorage.setItem("vtx_emp", ""); }
-  rotuloEmpresa();
+  validarEmpresa();
   const sem = estado.empresas.filter(e => !e.tem_certificado), b = $("#banner");
   if (!estado.empresas.length) { b.innerHTML = `${svg("empresa")} Nenhuma empresa cadastrada. <a onclick="mostrar('empresas');novaEmpresa()">Cadastrar empresa pelo CNPJ ou certificado</a>`; b.classList.remove("hidden"); }
   else if (sem.length) { b.innerHTML = `${svg("chave")} ${sem.length} empresa(s) sem certificado digital — necessário para consultar a SEFAZ e baixar os XMLs recebidos. <a onclick="mostrar('empresas')">Incluir certificado</a>`; b.classList.remove("hidden"); }
@@ -166,23 +163,42 @@ async function carregarEmpresas() {
 const semAcento = s => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 const empRaiz = e => (e.cnpj || "").slice(0, 8);
 const empOrdem = () => [...estado.empresas].sort((a, b) => empRaiz(a).localeCompare(empRaiz(b)) || (b.matriz - a.matriz) || a.cnpj.localeCompare(b.cnpj));
+// A consulta é sempre de uma empresa ("<id>") ou do grupo matriz + filiais ("r:<raiz do CNPJ>").
+const raizFmt = r => r.replace(/^(..)(...)(...)$/, "$1.$2.$3");
+const grupo = r => empOrdem().filter(e => e.cnpj.length === 14 && empRaiz(e) === r);
+const selRaiz = () => estado.empresa.startsWith("r:") ? estado.empresa.slice(2) : "";
+const empresasDoFiltro = () => { const r = selRaiz(); return r ? grupo(r) : estado.empresas.filter(e => String(e.id) === estado.empresa); };
+function validarEmpresa() {
+  const r = selRaiz();
+  const ok = r ? grupo(r).length > 1 : estado.empresas.some(e => String(e.id) === estado.empresa);
+  if (!ok) estado.empresa = estado.empresas.length ? String(empOrdem()[0].id) : "";
+  localStorage.setItem("vtx_emp", estado.empresa); rotuloEmpresa();
+}
 function rotuloEmpresa() {
-  const e = estado.empresas.find(x => String(x.id) === estado.empresa);
-  $("#emp-rot").innerHTML = e ? `<b>${docFmt(e.cnpj)}</b> ${esc(e.razao_social)}` : "Todas as empresas";
+  const r = selRaiz(), e = estado.empresas.find(x => String(x.id) === estado.empresa);
+  if (r) { const g = grupo(r), m = g.find(x => x.matriz) || g[0]; $("#emp-rot").innerHTML = `<b>${raizFmt(r)}</b> ${esc(m?.razao_social)} <i class="tag-grupo">matriz + ${g.length - 1} filial(is)</i>`; }
+  else $("#emp-rot").innerHTML = e ? `<b>${docFmt(e.cnpj)}</b> ${esc(e.razao_social)}` : "Nenhuma empresa cadastrada";
 }
 function listaEmpresas() {
   const t = $("#emp-busca").value.trim(), dig = t.replace(/\D/g, ""), txt = semAcento(t);
   const achou = empOrdem().filter(e => !t || (dig && e.cnpj.includes(dig)) || semAcento(e.razao_social).includes(txt));
-  const it = (id, html, on) => `<a data-emp="${id}" class="${on ? "on" : ""}">${html}</a>`;
-  $("#emp-lista").innerHTML = (!t ? it("", "<span>Todas as empresas</span>", !estado.empresa) : "") +
-    achou.map(e => it(e.id, `<b>${docFmt(e.cnpj)}</b><span>${esc(e.razao_social)}</span>${e.cnpj.length === 14 && !e.matriz ? `<i>filial</i>` : ""}`, String(e.id) === estado.empresa)).join("") +
+  const it = (id, html, on, cls = "") => `<a data-emp="${id}" class="${on ? "on" : ""} ${cls}">${html}</a>`;
+  // Depois da matriz (ou da 1ª empresa da raiz), a opção agregada "Matriz e filiais".
+  const vistas = new Set();
+  $("#emp-lista").innerHTML = achou.map(e => {
+    let h = it(e.id, `<b>${docFmt(e.cnpj)}</b><span>${esc(e.razao_social)}</span>${e.cnpj.length === 14 && !e.matriz ? `<i>filial</i>` : ""}`, String(e.id) === estado.empresa, e.cnpj.length === 14 && !e.matriz ? "filial" : "");
+    const r = empRaiz(e), g = e.cnpj.length === 14 ? grupo(r) : [];
+    if (g.length > 1 && !vistas.has(r)) { vistas.add(r); h += it("r:" + r, `<b>${raizFmt(r)}</b><span>Matriz e filiais (todas as ${g.length})</span><i>agregado</i>`, estado.empresa === "r:" + r, "agregado"); }
+    return h;
+  }).join("") +
     (t && !achou.length ? `<div class="muted" style="padding:10px 12px">Nenhuma empresa com "${esc(t)}"</div>` : "");
   $$("#emp-lista a").forEach(a => a.onclick = () => escolherEmpresa(a.dataset.emp));
 }
 function escolherEmpresa(id) {
   $("#emp-pop").classList.add("hidden");
   estado.empresa = String(id); localStorage.setItem("vtx_emp", estado.empresa); rotuloEmpresa(); estado.pagina = 1; mostrar(estado.view);
-  api("/auth/eu/empresa", { method: "PUT", json: { empresa_id: +estado.empresa || 0 } }).catch(() => { });
+  const r = selRaiz();
+  api("/auth/eu/empresa", { method: "PUT", json: { empresa_id: r ? 0 : +estado.empresa || 0, raiz: r } }).catch(() => { });
 }
 $("#emp-btn").onclick = ev => {
   ev.stopPropagation(); const p = $("#emp-pop"), abrir = p.classList.contains("hidden");
@@ -286,7 +302,7 @@ function ligarFiltro(el, extrasLer) {
 // Busca as notas novas de cada empresa do filtro: NF-e (Distribuição DF-e, inclusive
 // pelo certificado do contador — autXML) e NFS-e (ADN). Respeita a regra de 1 hora da SEFAZ.
 async function sincronizar(tipos) {
-  const emps = estado.empresas.filter(e => e.ativo !== false && (!estado.empresa || String(e.id) === estado.empresa));
+  const emps = empresasDoFiltro().filter(e => e.ativo !== false);
   const tarefas = [];
   const pedir = (rot, nome, url) => tarefas.push(api(url, { method: "POST", tempo: 240000 }).then(r => ({ rot, nome, r })).catch(er => ({ rot, nome, er })));
   if (tipos.includes("nfe")) {
@@ -310,7 +326,8 @@ async function sincronizar(tipos) {
 }
 function qsBase(extra = {}) {
   const q = new URLSearchParams({ de: estado.de, ate: estado.ate, ...extra });
-  if (estado.empresa) q.set("empresa_id", estado.empresa);
+  if (selRaiz()) q.set("raiz", selRaiz());
+  else if (estado.empresa) q.set("empresa_id", estado.empresa);
   for (const [k, v] of [...q]) if (!v) q.delete(k);
   return q;
 }
@@ -608,7 +625,7 @@ async function excluirEmpresa(e) {
   <p><b>${docFmt(e.cnpj)}</b> ${esc(e.razao_social)}</p>
   <p class="muted">Serão removidos o cadastro, o certificado, o controle de busca na SEFAZ / Ambiente Nacional e os pedidos de compra desta empresa.</p>
   ${dependentes.length ? `<div class="aviso">${svg("alerta")} ${dependentes.length} filial(is) usam o certificado desta empresa (${dependentes.map(x => esc(x.razao_social)).join(", ")}) e ficarão sem certificado.</div>` : ""}
-  <form id="fx">${n ? `<div class="opcoes"><label class="chk-inline"><input type="radio" name="docs" value="manter" checked> Manter as ${n} nota(s) no monitor (ficam em "Todas as empresas", sem vínculo)</label>
+  <form id="fx">${n ? `<div class="opcoes"><label class="chk-inline"><input type="radio" name="docs" value="manter" checked> Manter as ${n} nota(s) guardadas no monitor, sem vínculo de empresa (continuam no backup e na API)</label>
     <label class="chk-inline"><input type="radio" name="docs" value="excluir"> Excluir também as ${n} nota(s) desta empresa</label></div>` : `<p class="muted">Nenhuma nota vinculada a esta empresa.</p>`}
   <label style="margin-top:12px">Para confirmar, digite EXCLUIR<input name="conf" required autocomplete="off"></label>
   <div class="acoes"><button class="btn primary danger-bg">${svg("x")} Excluir</button><button type="button" class="btn" onclick="fecharModal()">Cancelar</button></div></form>`);
@@ -617,7 +634,7 @@ async function excluirEmpresa(e) {
     if (f.get("conf").trim().toUpperCase() !== "EXCLUIR") { toast('Digite EXCLUIR para confirmar', "var(--er)"); return; }
     try {
       const r = await api(`/empresas/${e.id}?documentos=${f.get("docs") === "excluir" ? "excluir" : "manter"}`, { method: "DELETE" });
-      fecharModal(); if (estado.empresa === String(e.id)) { estado.empresa = ""; localStorage.setItem("vtx_emp", ""); }
+      fecharModal();
       toast(`${esc(e.razao_social)} excluída${r.documentos ? ` · ${r.documentos} nota(s) ${r.documentos_excluidos ? "excluída(s)" : "mantida(s) no monitor"}` : ""}`, "var(--ok)"); mostrar("empresas");
     } catch (er) { toast(esc(er.message), "var(--er)"); }
   };
