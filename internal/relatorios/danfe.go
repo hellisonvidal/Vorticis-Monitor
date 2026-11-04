@@ -3,6 +3,7 @@
 package relatorios
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"strings"
@@ -106,6 +107,12 @@ func avisoStatus(d *store.Documento) string {
 
 // PDF escreve a representação gráfica simplificada do documento em PDF (A4).
 func PDF(w io.Writer, d *store.Documento, itens []store.Item) error {
+	if d.Modelo == "NFSE" && strings.TrimSpace(d.XML) != "" {
+		return DANFSe(w, d) // leiaute próprio e completo da NFS-e
+	}
+	if d.Modelo == "NFE" && strings.Contains(d.XML, "<infNFe") && !d.Resumo {
+		return DANFENFe(w, d) // DANFE completo no leiaute oficial
+	}
 	pdf := fpdf.New("P", "mm", "A4", "")
 	tr := pdf.UnicodeTranslatorFromDescriptor("cp1252")
 	pdf.SetMargins(8, 8, 8)
@@ -278,4 +285,38 @@ func PDF(w io.Writer, d *store.Documento, itens []store.Item) error {
 	}
 	pdf.MultiCell(L, 3.6, tr(info+"."), "1", "L", false)
 	return pdf.Output(w)
+}
+
+// LogoPorCNPJ devolve o logotipo cadastrado para o CNPJ (definido na inicialização).
+var LogoPorCNPJ = func(string) []byte { return nil }
+
+// registrarLogo coloca o logotipo do CNPJ no PDF e devolve o nome da imagem ("" se não houver).
+func registrarLogo(pdf *fpdf.Fpdf, cnpj string) string {
+	b := LogoPorCNPJ(cnpj)
+	if len(b) == 0 {
+		return ""
+	}
+	tipo := "PNG"
+	if len(b) > 2 && b[0] == 0xFF && b[1] == 0xD8 {
+		tipo = "JPG"
+	}
+	nome := "logo-" + cnpj
+	if info := pdf.RegisterImageOptionsReader(nome, fpdf.ImageOptions{ImageType: tipo, ReadDpi: true}, bytes.NewReader(b)); info == nil || pdf.Err() {
+		pdf.ClearError()
+		return ""
+	}
+	return nome
+}
+
+// desenharLogo encaixa a imagem na caixa (x, y, w, h) mantendo a proporção.
+func desenharLogo(pdf *fpdf.Fpdf, nome string, x, y, w, h float64) {
+	info := pdf.GetImageInfo(nome)
+	if info == nil || info.Width() == 0 || info.Height() == 0 {
+		return
+	}
+	iw, ih := w, w*info.Height()/info.Width()
+	if ih > h {
+		ih, iw = h, h*info.Width()/info.Height()
+	}
+	pdf.ImageOptions(nome, x+(w-iw)/2, y+(h-ih)/2, iw, ih, false, fpdf.ImageOptions{}, 0, "")
 }

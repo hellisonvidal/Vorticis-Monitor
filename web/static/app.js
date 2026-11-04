@@ -78,7 +78,8 @@ function toast(msg, cor) {
 const link = p => "/api/v1" + p + (p.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(estado.token);
 async function baixar(resp, nomePadrao) {
   const cd = resp.headers.get("content-disposition") || "";
-  const nome = (cd.match(/filename="([^"]+)"/) || [])[1] || nomePadrao;
+  const utf = (cd.match(/filename\*=UTF-8''([^;]+)/i) || [])[1];
+  const nome = (utf && decodeURIComponent(utf)) || (cd.match(/filename="([^"]+)"/) || [])[1] || nomePadrao;
   const url = URL.createObjectURL(await resp.blob());
   const a = Object.assign(document.createElement("a"), { href: url, download: nome }); document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 30000);
@@ -141,12 +142,9 @@ async function entrar() {
   estado.eu = await api("/auth/eu").catch(() => ({ perfil: "ADMIN" }));
   $("#app").classList.remove("hidden");
   $("#eu-nome").textContent = estado.eu.nome || estado.eu.login || "";
-  // Abre na última empresa consultada por este usuário (guardada no banco do programa).
-  if (estado.eu.ultima_empresa_id !== undefined) {
-    const id = String(estado.eu.ultima_empresa_id || "");
-    estado.empresa = id && estado.empresas.some(e => String(e.id) === id) ? id : "";
-    localStorage.setItem("vtx_emp", estado.empresa); rotuloEmpresa();
-  }
+  // Abre na última empresa consultada por este usuário.
+  if (estado.eu.ultima_empresa_id) estado.empresa = String(estado.eu.ultima_empresa_id);
+  validarEmpresa();
   if (MENU.find(m => m.v === estado.view)?.admin && !ehAdmin()) estado.view = "painel";
   $("#menu").innerHTML = MENU.filter(m => !m.admin || ehAdmin()).map(m => m.grupo ? `<div class="grupo">${m.grupo}</div>` : `<a data-v="${m.v}" title="${m.t}">${svg(m.i)}<span>${m.t}</span></a>`).join("");
   $$("#menu a").forEach(a => a.onclick = () => { estado.pagina = 1; estado.status = ""; estado.modelo = ""; estado.busca = ""; mostrar(a.dataset.v); });
@@ -154,8 +152,7 @@ async function entrar() {
 }
 async function carregarEmpresas() {
   estado.empresas = await api("/empresas");
-  if (estado.empresa && !estado.empresas.some(e => String(e.id) === estado.empresa)) { estado.empresa = ""; localStorage.setItem("vtx_emp", ""); }
-  rotuloEmpresa();
+  validarEmpresa();
   const sem = estado.empresas.filter(e => !e.tem_certificado), b = $("#banner");
   if (!estado.empresas.length) { b.innerHTML = `${svg("empresa")} Nenhuma empresa cadastrada. <a onclick="mostrar('empresas');novaEmpresa()">Cadastrar empresa pelo CNPJ ou certificado</a>`; b.classList.remove("hidden"); }
   else if (sem.length) { b.innerHTML = `${svg("chave")} ${sem.length} empresa(s) sem certificado digital — necessário para consultar a SEFAZ e baixar os XMLs recebidos. <a onclick="mostrar('empresas')">Incluir certificado</a>`; b.classList.remove("hidden"); }
@@ -165,16 +162,23 @@ async function carregarEmpresas() {
 const semAcento = s => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 const empRaiz = e => (e.cnpj || "").slice(0, 8);
 const empOrdem = () => [...estado.empresas].sort((a, b) => empRaiz(a).localeCompare(empRaiz(b)) || (b.matriz - a.matriz) || a.cnpj.localeCompare(b.cnpj));
+// A consulta é sempre de uma única empresa.
+const empresasDoFiltro = () => estado.empresas.filter(e => String(e.id) === estado.empresa);
+function validarEmpresa() {
+  const ok = estado.empresas.some(e => String(e.id) === estado.empresa);
+  if (!ok) estado.empresa = estado.empresas.length ? String(empOrdem()[0].id) : "";
+  localStorage.setItem("vtx_emp", estado.empresa); rotuloEmpresa();
+}
 function rotuloEmpresa() {
   const e = estado.empresas.find(x => String(x.id) === estado.empresa);
-  $("#emp-rot").innerHTML = e ? `<b>${docFmt(e.cnpj)}</b> ${esc(e.razao_social)}` : "Todas as empresas";
+  $("#emp-rot").innerHTML = e ? `<b>${docFmt(e.cnpj)}</b> ${esc(e.razao_social)}` : "Nenhuma empresa cadastrada";
 }
 function listaEmpresas() {
   const t = $("#emp-busca").value.trim(), dig = t.replace(/\D/g, ""), txt = semAcento(t);
   const achou = empOrdem().filter(e => !t || (dig && e.cnpj.includes(dig)) || semAcento(e.razao_social).includes(txt));
-  const it = (id, html, on) => `<a data-emp="${id}" class="${on ? "on" : ""}">${html}</a>`;
-  $("#emp-lista").innerHTML = (!t ? it("", "<span>Todas as empresas</span>", !estado.empresa) : "") +
-    achou.map(e => it(e.id, `<b>${docFmt(e.cnpj)}</b><span>${esc(e.razao_social)}</span>${e.cnpj.length === 14 && !e.matriz ? `<i>filial</i>` : ""}`, String(e.id) === estado.empresa)).join("") +
+  const it = (id, html, on, cls = "") => `<a data-emp="${id}" class="${on ? "on" : ""} ${cls}">${html}</a>`;
+  $("#emp-lista").innerHTML = achou.map(e => it(e.id, `<b>${docFmt(e.cnpj)}</b><span>${esc(e.razao_social)}</span>${e.cnpj.length === 14 && !e.matriz ? `<i>filial</i>` : ""}`,
+    String(e.id) === estado.empresa, e.cnpj.length === 14 && !e.matriz ? "filial" : "")).join("") +
     (t && !achou.length ? `<div class="muted" style="padding:10px 12px">Nenhuma empresa com "${esc(t)}"</div>` : "");
   $$("#emp-lista a").forEach(a => a.onclick = () => escolherEmpresa(a.dataset.emp));
 }
@@ -285,7 +289,7 @@ function ligarFiltro(el, extrasLer) {
 // Busca as notas novas de cada empresa do filtro: NF-e (Distribuição DF-e, inclusive
 // pelo certificado do contador — autXML) e NFS-e (ADN). Respeita a regra de 1 hora da SEFAZ.
 async function sincronizar(tipos) {
-  const emps = estado.empresas.filter(e => e.ativo !== false && (!estado.empresa || String(e.id) === estado.empresa));
+  const emps = empresasDoFiltro().filter(e => e.ativo !== false);
   const tarefas = [];
   const pedir = (rot, nome, url) => tarefas.push(api(url, { method: "POST", tempo: 240000 }).then(r => ({ rot, nome, r })).catch(er => ({ rot, nome, er })));
   if (tipos.includes("nfe")) {
@@ -395,7 +399,8 @@ async function baixarUm(chave, formato) {
   const c = encodeURIComponent(chave);
   try {
     if (formato !== "pdf") await baixar(await api(`/documentos/${c}/xml`, { blob: true }), chave + ".xml");
-    if (formato !== "xml") await baixar(await api(`/documentos/${c}/pdf?baixar=1`, { blob: true }), chave + ".pdf");
+    // PDF sozinho: "NF 123 - Fornecedor.pdf"; PDF + XML: os dois pela chave de acesso.
+    if (formato !== "xml") await baixar(await api(`/documentos/${c}/pdf?baixar=1${formato === "ambos" ? "&chave=1" : ""}`, { blob: true }), chave + ".pdf");
     toast("Arquivo salvo em Downloads", "var(--ok)");
   } catch (e) { toast(esc(e.message), "var(--er)"); }
 }
@@ -452,48 +457,12 @@ async function exportarLote(formato, q, total, btn) {
   catch (e) { toast(esc(e.message), "var(--er)"); }
   if (btn) { btn.disabled = false; btn.innerHTML = txt; }
 }
-VIEWS.nfe = el => consultaDocs(el, { modelo: "NFE,NFCE" }, { modelos: ["NFE", "NFCE"], rotulos: ["Emitidas", "Recebidas"], manif: true, antesRecebidos: cardsCaptura });
-VIEWS.servicos = el => consultaDocs(el, { modelo: "NFSE" }, { rotulos: ["Prestadas (emitidas)", "Tomadas (recebidas)"], parteS: "Tomador", parteE: "Prestador", antesSempre: cardsNFSe });
+VIEWS.nfe = el => consultaDocs(el, { modelo: "NFE,NFCE" }, { modelos: ["NFE", "NFCE"], rotulos: ["Emitidas", "Recebidas"], manif: true });
+VIEWS.servicos = el => consultaDocs(el, { modelo: "NFSE" }, { rotulos: ["Prestadas (emitidas)", "Tomadas (recebidas)"], parteS: "Tomador", parteE: "Prestador" });
 
-// Busca de NFS-e no Ambiente de Dados Nacional (ADN), por empresa: certificado próprio ou procuração.
-async function cardsNFSe() {
-  const [nsu, procs] = await Promise.all([api("/captura/status").catch(() => []), api("/procuradores").catch(() => [])]);
-  const emps = estado.empresas.filter(e => !estado.empresa || String(e.id) === estado.empresa);
-  if (!emps.length) return "";
-  return `<div class="grid g2" style="margin-bottom:16px">${emps.map(e => {
-    const n = nsu.find(x => x.empresa_id === e.id && x.servico === "NFSE_ADN") || {};
-    const pr = e.nfse_modo === "PROCURACAO" ? procs.find(p => p.id === e.nfse_procurador_id) : null;
-    const pode = pr || e.tem_certificado;
-    const via = pr ? `Procuração eletrônica · certificado de <b>${esc(pr.nome)}</b>` : e.nfse_modo === "PROCURACAO" ? `<span style="color:var(--er)">Procuração sem procurador escolhido</span>` : e.cert_proprio ? "Certificado da própria empresa" : e.tem_certificado ? `Certificado da matriz ${esc(e.cert_empresa)}` : "Sem certificado — inclua o certificado ou use procuração do contador";
-    return `<div class="card" style="display:flex;gap:14px;align-items:center">
-      <div class="kpi"><div class="ic ${!pode ? "c-wa" : [401, 403].includes(n.ultimo_c_stat) ? "c-er" : "c-pr"}">${svg(pr ? "chave" : "servico")}</div></div>
-      <div style="flex:1"><b>${esc(e.razao_social)}</b><div class="doc-sub">NFS-e Nacional (ADN) · ${via}<br>Última consulta: ${dt(n.ultima_consulta) || "ainda não realizada"}${n.proxima_consulta ? ` · próxima: ${dt(n.proxima_consulta)}` : ""}${n.ultimo_motivo ? `<br>${esc(n.ultimo_motivo)}` : ""}</div></div>
-      ${pode || !ehAdmin() ? "" : `<button class="btn sm" onclick='editarEmpresa(${JSON.stringify(e).replace(/'/g, "&#39;")})'>Configurar</button>`}</div>`;
-  }).join("")}</div>`;
-}
 VIEWS.transporte = el => consultaDocs(el, { modelo: "CTE,MDFE" }, { modelos: ["CTE", "MDFE"] });
 VIEWS.documentos = el => consultaDocs(el, {}, { modelos: ["NFE", "NFCE", "CTE", "MDFE", "NFSE"] });
 
-// Situação da busca automática de NF-e recebidas (Distribuição DF-e), por empresa.
-async function cardsCaptura() {
-  const nsu = await api("/captura/status").catch(() => []);
-  const emps = estado.empresas.filter(e => !estado.empresa || String(e.id) === estado.empresa);
-  if (!emps.length) return "";
-  const agora = new Date();
-  return `<div class="grid g2" style="margin-bottom:16px">${emps.map(e => {
-    const n = nsu.find(x => x.empresa_id === e.id && x.servico === "NFE_DISTDFE") || {};
-    const prox = n.proxima_consulta ? new Date(n.proxima_consulta) : null;
-    const aguarda = prox && prox > agora && [137, 656].includes(n.ultimo_c_stat);
-    const info = !e.tem_certificado ? "Inclua o certificado digital para baixar as notas destinadas à empresa"
-      : `${e.cert_proprio ? "" : `Certificado da matriz ${esc(e.cert_empresa)}<br>`}Última consulta: ${dt(n.ultima_consulta || n.updated_at) || "ainda não realizada"}${prox ? ` · próxima: ${dt(n.proxima_consulta)}` : ""}${n.ultimo_motivo ? `<br>${n.ultimo_c_stat ? n.ultimo_c_stat + " · " : ""}${esc(n.ultimo_motivo)}` : ""}`;
-    return `<div class="card" style="display:flex;gap:14px;align-items:center">
-    <div class="kpi"><div class="ic ${!e.tem_certificado ? "c-wa" : n.ultimo_c_stat === 656 ? "c-er" : "c-pr"}">${svg(e.tem_certificado ? "entrada" : "chave")}</div></div>
-    <div style="flex:1"><b>${esc(e.razao_social)}</b><div class="doc-sub">${info}</div>
-    ${n.concorrente ? `<div class="aviso" style="margin:8px 0 0">Outro sistema também consulta este CNPJ na SEFAZ (ex.: outro monitor de notas). O intervalo foi ampliado para no mínimo 2 horas para evitar bloqueio por consumo indevido (656).</div>` : ""}</div>
-    ${aguarda ? `<span class="st PENDENTE" title="A SEFAZ só libera nova consulta após ${dt(n.proxima_consulta)}">aguardando SEFAZ</span>` : ""}
-    ${!e.tem_certificado && ehAdmin() ? `<button class="btn sm" onclick="mostrar('empresas')">Incluir certificado</button>` : ""}</div>`;
-  }).join("")}</div>`;
-}
 
 /* ---------- Relatórios ---------- */
 VIEWS.relatorios = async el => {
@@ -614,7 +583,7 @@ VIEWS.empresas = async el => {
     <td><b class="nome" title="${esc(e.razao_social)}">${esc(e.razao_social)}</b><div class="doc-sub">${esc(e.uf)} · IE ${esc(e.ie || "não informada")} · ${esc(regime[e.regime] || e.regime)}${e.ativo === false ? " · inativa" : ""}</div></td>
     <td><div class="tags">${e.cnpj.length !== 14 ? "" : e.matriz ? `<span class="st PENDENTE">Matriz${filiais(empRaiz(e)) ? ` · ${filiais(empRaiz(e))}` : ""}</span>` : `<span class="st CANCELADA">Filial</span>`}<span class="st ${e.ambiente === 1 ? "AUTORIZADA" : "PENDENTE"}">${e.ambiente === 1 ? "Produção" : "Homologação"}</span></div></td>
     <td id="cert-${e.id}" class="doc-sub">verificando…</td>
-    ${adm ? `<td><div class="emp-acoes"><button class="btn sm icone" data-a="editar" title="Editar empresa">${svg("editar")}</button><button class="btn sm icone" data-a="cert" title="${e.cert_proprio ? "Substituir certificado" : "Incluir certificado"}">${svg("chave")}</button>${e.cnpj.length === 14 ? `<button class="btn sm icone" data-a="filial" title="Incluir filial desta empresa">${svg("mais")}</button>` : ""}<button class="btn sm icone danger" data-a="excluir" title="Excluir empresa">${svg("lixo")}</button></div></td>` : ""}</tr>`).join("")}</tbody></table></div>`
+    ${adm ? `<td><div class="emp-acoes"><button class="btn sm icone" data-a="editar" title="Editar empresa">${svg("editar")}</button><button class="btn sm icone" data-a="cert" title="${e.cert_proprio ? "Substituir certificado" : "Incluir certificado"}">${svg("chave")}</button>${e.cnpj.length === 14 && e.matriz ? `<button class="btn sm icone" data-a="filial" title="Incluir filial desta empresa">${svg("mais")}</button>` : `<span class="btn-vazio"></span>`}<button class="btn sm icone danger" data-a="excluir" title="Excluir empresa">${svg("lixo")}</button></div></td>` : ""}</tr>`).join("")}</tbody></table></div>`
     : `<div class="card vazio">${svg("empresa")}<div>Nenhuma empresa cadastrada.</div><div style="font-size:12.5px">Informe apenas o CNPJ ou use o certificado digital: os dados são importados da Receita Federal e a IE da SEFAZ.</div></div>`}`;
   const filtrar = () => {
     const t = $("#emp-q").value.trim(), dig = t.replace(/\D/g, ""), txt = semAcento(t); estado.empQ = t; let n = 0;
@@ -642,7 +611,7 @@ async function excluirEmpresa(e) {
   <p><b>${docFmt(e.cnpj)}</b> ${esc(e.razao_social)}</p>
   <p class="muted">Serão removidos o cadastro, o certificado, o controle de busca na SEFAZ / Ambiente Nacional e os pedidos de compra desta empresa.</p>
   ${dependentes.length ? `<div class="aviso">${svg("alerta")} ${dependentes.length} filial(is) usam o certificado desta empresa (${dependentes.map(x => esc(x.razao_social)).join(", ")}) e ficarão sem certificado.</div>` : ""}
-  <form id="fx">${n ? `<div class="opcoes"><label class="chk-inline"><input type="radio" name="docs" value="manter" checked> Manter as ${n} nota(s) no monitor (ficam em "Todas as empresas", sem vínculo)</label>
+  <form id="fx">${n ? `<div class="opcoes"><label class="chk-inline"><input type="radio" name="docs" value="manter" checked> Manter as ${n} nota(s) guardadas no monitor, sem vínculo de empresa (continuam no backup e na API)</label>
     <label class="chk-inline"><input type="radio" name="docs" value="excluir"> Excluir também as ${n} nota(s) desta empresa</label></div>` : `<p class="muted">Nenhuma nota vinculada a esta empresa.</p>`}
   <label style="margin-top:12px">Para confirmar, digite EXCLUIR<input name="conf" required autocomplete="off"></label>
   <div class="acoes"><button class="btn primary danger-bg">${svg("x")} Excluir</button><button type="button" class="btn" onclick="fecharModal()">Cancelar</button></div></form>`);
@@ -651,7 +620,7 @@ async function excluirEmpresa(e) {
     if (f.get("conf").trim().toUpperCase() !== "EXCLUIR") { toast('Digite EXCLUIR para confirmar', "var(--er)"); return; }
     try {
       const r = await api(`/empresas/${e.id}?documentos=${f.get("docs") === "excluir" ? "excluir" : "manter"}`, { method: "DELETE" });
-      fecharModal(); if (estado.empresa === String(e.id)) { estado.empresa = ""; localStorage.setItem("vtx_emp", ""); }
+      fecharModal();
       toast(`${esc(e.razao_social)} excluída${r.documentos ? ` · ${r.documentos} nota(s) ${r.documentos_excluidos ? "excluída(s)" : "mantida(s) no monitor"}` : ""}`, "var(--ok)"); mostrar("empresas");
     } catch (er) { toast(esc(er.message), "var(--er)"); }
   };
@@ -744,8 +713,20 @@ function formEmpresa(el, d, cert, existente) {
   };
 }
 function editarEmpresa(e) {
-  modal(`<h3>Editar empresa</h3><div class="acoes" style="margin-top:0"><button class="btn sm" id="atualizar-rf">${svg("busca")} Atualizar pela Receita/SEFAZ</button></div><div id="ed-form"></div>`);
+  modal(`<h3>Editar empresa</h3><div class="acoes" style="margin-top:0"><button class="btn sm" id="atualizar-rf">${svg("busca")} Atualizar pela Receita/SEFAZ</button></div><div id="ed-form"></div>
+  <div class="logo-emp"><div class="logo-prev" id="logo-prev">${e.tem_logo ? `<img src="${link(`/empresas/${e.id}/logo`)}&t=${Date.now()}" alt="Logotipo">` : `<span class="muted">sem logotipo</span>`}</div>
+    <div><b>Logotipo da empresa</b><div class="doc-sub">Aparece no DANFE e no DANFSe das notas emitidas por esta empresa. PNG ou JPG, até 1 MB (de preferência com fundo branco ou transparente).</div>
+    <div class="acoes" style="margin:8px 0 0"><label class="btn sm">${svg("mais")} Escolher imagem<input type="file" id="logo-arq" accept="image/png,image/jpeg" hidden></label>${e.tem_logo ? `<button type="button" class="btn sm danger" id="logo-rem">Remover logotipo</button>` : ""}</div></div></div>`);
   formEmpresa($("#ed-form"), { ...e, regime: e.regime }, null, e);
+  $("#logo-arq").onchange = async ev => {
+    const f = ev.target.files[0]; if (!f) return;
+    const fd = new FormData(); fd.append("arquivo", f, f.name);
+    try { await api(`/empresas/${e.id}/logo`, { method: "POST", body: fd }); e.tem_logo = true; toast("Logotipo salvo", "var(--ok)");
+      $("#logo-prev").innerHTML = `<img src="${link(`/empresas/${e.id}/logo`)}&t=${Date.now()}" alt="Logotipo">`; carregarEmpresas(); }
+    catch (er) { toast(esc(er.message), "var(--er)"); }
+  };
+  const rem = $("#logo-rem");
+  if (rem) rem.onclick = async () => { await api(`/empresas/${e.id}/logo`, { method: "DELETE" }); e.tem_logo = false; $("#logo-prev").innerHTML = `<span class="muted">sem logotipo</span>`; rem.remove(); toast("Logotipo removido", "var(--ok)"); carregarEmpresas(); };
   $("#atualizar-rf").onclick = async () => {
     try { const d = await api("/cadastro/cnpj/" + e.cnpj); formEmpresa($("#ed-form"), { ...d, ambiente: e.ambiente, captura_automatica: e.captura_automatica, regime: e.regime, nfse_modo: e.nfse_modo, nfse_procurador_id: e.nfse_procurador_id, usar_cert_matriz: e.usar_cert_matriz }, null, e); toast("Dados atualizados — confira e salve"); }
     catch (er) { toast(esc(er.message), "var(--er)"); }

@@ -15,7 +15,59 @@ import (
 	"vorticis.com.br/monitor/internal/fiscal"
 	"vorticis.com.br/monitor/internal/sefaz"
 	"vorticis.com.br/monitor/internal/store"
+	"vorticis.com.br/monitor/internal/xmlfiscal"
 )
+
+// NFeDaEmpresa indica se a NF-e pertence à empresa (emitente ou destinatária).
+// Notas em que ela só aparece como transportadora ou em autXML são de terceiros.
+// XMLs que não são NF-e (resumos, eventos) são aceitos.
+func NFeDaEmpresa(xml []byte, daEmpresa func(doc string) bool) bool {
+	d, err := xmlfiscal.Parse(xml)
+	if err != nil || d.NFe == nil {
+		return true
+	}
+	return daEmpresa(d.NFe.Emit.Doc()) || daEmpresa(d.NFe.Dest.Doc())
+}
+
+// LimparNotasDeTerceiros remove as NF-e baixadas da SEFAZ em que nenhuma empresa
+// cadastrada é emitente ou destinatária (ex.: a empresa era só a transportadora).
+func (m *Monitor) LimparNotasDeTerceiros() int {
+	emps, _ := m.Store.ListarEmpresas()
+	cnpjs := map[string]bool{}
+	for _, e := range emps {
+		cnpjs[e.CNPJ] = true
+	}
+	docs, _, err := m.Store.ListarDocumentos(store.FiltroDocumentos{Modelo: "NFE,NFCE", Todos: true, SemEmpresa: true, Origem: "DISTDFE"})
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for _, d := range docs {
+		if cnpjs[d.EmitDoc] || cnpjs[d.DestDoc] {
+			continue
+		}
+		full, err := m.Store.ObterDocumento(d.Chave)
+		if err != nil {
+			continue
+		}
+		x, err := xmlfiscal.Parse([]byte(full.XML))
+		if err != nil || x.NFe == nil {
+			continue
+		}
+		// só remove se uma empresa cadastrada aparece como transportadora ou em autXML
+		terceiro := cnpjs[x.NFe.Transp.Transporta.CNPJ]
+		for _, a := range x.NFe.AutXML {
+			terceiro = terceiro || cnpjs[a.CNPJ]
+		}
+		if terceiro && m.Store.ExcluirDocumento(d.Chave) == nil {
+			n++
+		}
+	}
+	if n > 0 {
+		log.Printf("removidas %d NF-e de terceiros (empresa só como transportadora/autXML)", n)
+	}
+	return n
+}
 
 // ---------------- Captura (Distribuição DF-e) ----------------
 
@@ -52,6 +104,12 @@ func (m *Monitor) CapturarDistDFe(ctx context.Context, empresaID int64, forcar b
 				return nil, "", "", err
 			}
 			return cli, fiscal.CodigoPorUF[emp.UF], emp.CNPJ, nil
+		},
+		// A SEFAZ também entrega as NF-e em que a empresa é só transportadora ou
+		// autorizada a obter o XML: essas não são da empresa e ficam de fora.
+		aceitar: func(xml []byte) bool {
+			emp, err := m.Store.ObterEmpresa(empresaID)
+			return err != nil || NFeDaEmpresa(xml, func(doc string) bool { return doc == emp.CNPJ })
 		},
 		aposImportar: func(d sefaz.DocZip, ir *ResultadoImportacao) {
 			emp, err := m.Store.ObterEmpresa(empresaID)
@@ -215,13 +273,21 @@ func (m *Monitor) CapturarNFeProcurador(ctx context.Context, procID int64, forca
 		},
 		aceitar: func(xml []byte) bool {
 			emps, _ := m.Store.ListarEmpresas()
+			cadastrada := func(doc string) bool {
+				for _, e := range emps {
+					if e.Ativo && e.CNPJ == doc {
+						return true
+					}
+				}
+				return false
+			}
+			if d, err := xmlfiscal.Parse(xml); err == nil && d.NFe != nil {
+				return NFeDaEmpresa(xml, cadastrada)
+			}
+			// eventos e resumos: CNPJ de empresa cadastrada embutido na chave
 			doc := string(xml)
 			for _, e := range emps {
-				if !e.Ativo {
-					continue
-				}
-				// emitente/destinatário da nota ou CNPJ do emitente embutido na chave (eventos)
-				if strings.Contains(doc, "<CNPJ>"+e.CNPJ+"</CNPJ>") || strings.Contains(doc, "<chNFe>") && strings.Contains(doc, e.CNPJ) {
+				if e.Ativo && strings.Contains(doc, "<chNFe>") && strings.Contains(doc, e.CNPJ) {
 					return true
 				}
 			}
@@ -481,6 +547,7 @@ func (m *Monitor) Iniciar(ctx context.Context) {
 	intervalo := time.Duration(max(15, m.Cfg.IntervaloVarreduraSeg)) * time.Second
 	t := time.NewTicker(intervalo)
 	defer t.Stop()
+	m.LimparNotasDeTerceiros()
 	ciclo := 0
 	for {
 		m.executarCiclo(ctx, ciclo)

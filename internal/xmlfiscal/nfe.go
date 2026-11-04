@@ -59,8 +59,16 @@ type InfNFe struct {
 		ICMSTot ICMSTot `xml:"ICMSTot"`
 	} `xml:"total"`
 	Transp struct {
-		ModFrete string `xml:"modFrete"`
+		ModFrete   string `xml:"modFrete"`
+		Transporta struct {
+			CNPJ string `xml:"CNPJ"`
+			CPF  string `xml:"CPF"`
+		} `xml:"transporta"`
 	} `xml:"transp"`
+	AutXML []struct {
+		CNPJ string `xml:"CNPJ"`
+		CPF  string `xml:"CPF"`
+	} `xml:"autXML"`
 	InfAdic struct {
 		InfCpl string `xml:"infCpl"`
 	} `xml:"infAdic"`

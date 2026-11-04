@@ -3,15 +3,16 @@ module vorticis.com.br/monitor
 go 1.24.7
 
 require (
+	github.com/go-pdf/fpdf v0.9.0
 	github.com/jchv/go-webview2 v0.0.0-20260205173254-56598839c808
 	golang.org/x/sys v0.28.0
 	modernc.org/sqlite v1.34.4
+	rsc.io/qr v0.2.0
 	software.sslmate.com/src/go-pkcs12 v0.5.0
 )
 
 require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
-	github.com/go-pdf/fpdf v0.9.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
 	github.com/jchv/go-winloader v0.0.0-20250406163304-c1995be93bd1 // indirect
