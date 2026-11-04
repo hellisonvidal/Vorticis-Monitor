@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/go-pdf/fpdf"
+	"rsc.io/qr"
 
 	"vorticis.com.br/monitor/internal/fiscal"
 	"vorticis.com.br/monitor/internal/store"
@@ -466,38 +467,67 @@ func DANFSe(w io.Writer, doc *store.Documento) error {
 		pdf.SetTextColor(0, 0, 0)
 	}
 	y0 := pdf.GetY()
-	pdf.Rect(x0, y0, L, 20, "D")
-	pdf.SetXY(x0+2, y0+2)
-	pdf.SetFont("Helvetica", "B", 15)
-	pdf.CellFormat(60, 7, "DANFSe", "", 2, "L", false, 0, "")
-	pdf.SetFont("Helvetica", "", 7)
-	pdf.CellFormat(60, 3.5, tr("Documento Auxiliar da NFS-e"), "", 2, "L", false, 0, "")
-	pdf.CellFormat(60, 3.5, tr(map[string]string{"NACIONAL": "Padrão Nacional (Sistema Nacional NFS-e)", "ABRASF": "Padrão ABRASF (prefeitura)"}[d.padrao]), "", 2, "L", false, 0, "")
-	pdf.SetXY(x0+70, y0+2)
-	pdf.SetFont("Helvetica", "B", 8)
-	pdf.CellFormat(122, 4, tr("Município emissor: "+ou(d.municipioEmissor)), "", 2, "R", false, 0, "")
-	pdf.SetFont("Helvetica", "", 7)
-	if len(d.chave) >= 44 {
-		pdf.CellFormat(122, 4, tr("Consulta de autenticidade: https://www.nfse.gov.br/consultapublica"), "", 2, "R", false, 0, "")
-	} else if d.codVerif != "" {
-		pdf.CellFormat(122, 4, tr("Código de verificação: "+d.codVerif+" (consulte no site da prefeitura)"), "", 2, "R", false, 0, "")
+	const hc = 30.0
+	pdf.SetDrawColor(90, 90, 90)
+	pdf.SetLineWidth(0.2)
+	pdf.Rect(x0, y0, L, hc, "D")
+	// Selo "NFS-e" (marca gráfica do documento; não é o logotipo oficial)
+	pdf.SetFillColor(14, 94, 140)
+	pdf.RoundedRect(x0+3, y0+4, 17, 11, 1.8, "1234", "F")
+	pdf.SetFillColor(32, 150, 90)
+	pdf.RoundedRect(x0+20, y0+4, 11, 11, 1.8, "1234", "F")
+	pdf.SetFillColor(14, 94, 140)
+	pdf.Rect(x0+18, y0+4, 3, 11, "F")
+	pdf.SetTextColor(255, 255, 255)
+	pdf.SetFont("Helvetica", "B", 12.5)
+	pdf.SetXY(x0+3, y0+4)
+	pdf.CellFormat(17, 11, "NFS", "", 0, "C", false, 0, "")
+	pdf.SetXY(x0+20, y0+4)
+	pdf.CellFormat(11, 11, "-e", "", 0, "C", false, 0, "")
+	pdf.SetTextColor(60, 60, 60)
+	pdf.SetFont("Helvetica", "", 5.2)
+	pdf.SetXY(x0+2, y0+16.5)
+	pdf.MultiCell(30, 2.4, tr("Nota Fiscal de Serviço\neletrônica"), "", "C", false)
+	pdf.SetTextColor(0, 0, 0)
+	// Título
+	pdf.SetXY(x0+36, y0+3.5)
+	pdf.SetFont("Helvetica", "B", 16)
+	pdf.CellFormat(70, 7, "DANFSe", "", 2, "L", false, 0, "")
+	pdf.SetFont("Helvetica", "", 7.5)
+	pdf.CellFormat(70, 3.6, tr("Documento Auxiliar da NFS-e"), "", 2, "L", false, 0, "")
+	pdf.SetFont("Helvetica", "", 6.5)
+	pdf.CellFormat(70, 3.4, tr(map[string]string{"NACIONAL": "Padrão Nacional · Sistema Nacional NFS-e", "ABRASF": "Padrão ABRASF · emitida pela prefeitura"}[d.padrao]), "", 2, "L", false, 0, "")
+	pdf.SetFont("Helvetica", "B", 7.5)
+	pdf.CellFormat(70, 4, tr("Município emissor: "+ou(d.municipioEmissor)), "", 2, "L", false, 0, "")
+	if d.codVerif != "" {
+		pdf.SetFont("Helvetica", "", 6.5)
+		pdf.CellFormat(70, 3.4, tr("Código de verificação: "+d.codVerif), "", 2, "L", false, 0, "")
 	}
+	// Logotipo do prestador (quando é empresa cadastrada com logotipo)
+	if lg := registrarLogo(pdf, fiscal.SoDigitos(d.prest.doc)); lg != "" {
+		desenharLogo(pdf, lg, x0+110, y0+3, 46, hc-6)
+	}
+	// QR Code da consulta pública (Padrão Nacional)
 	if c := fiscal.SoDigitos(d.chave); len(c) >= 44 && c == d.chave {
-		mods := barras128C(c)
-		total := 0
-		for _, m := range mods {
-			total += m
-		}
-		escala, bx := 100.0/float64(total), x0+L-102
-		pdf.SetFillColor(0, 0, 0)
-		for i, m := range mods {
-			if i%2 == 0 {
-				pdf.Rect(bx, y0+10.5, float64(m)*escala, 8, "F")
+		url := "https://www.nfse.gov.br/ConsultaPublica/?tpc=1&chave=" + c
+		if q, err := qr.Encode(url, qr.M); err == nil {
+			lado := 23.0
+			m := lado / float64(q.Size)
+			qx, qy := x0+L-lado-9, y0+2
+			pdf.SetFillColor(0, 0, 0)
+			for yy := 0; yy < q.Size; yy++ {
+				for xx := 0; xx < q.Size; xx++ {
+					if q.Black(xx, yy) {
+						pdf.Rect(qx+float64(xx)*m, qy+float64(yy)*m, m+0.01, m+0.01, "F")
+					}
+				}
 			}
-			bx += float64(m) * escala
+			pdf.SetFont("Helvetica", "", 5.2)
+			pdf.SetXY(qx-8, qy+lado+0.6)
+			pdf.CellFormat(lado+16, 2.4, tr("Consulta pública: nfse.gov.br"), "", 0, "C", false, 0, "")
 		}
 	}
-	pdf.SetXY(x0, y0+20)
+	pdf.SetXY(x0, y0+hc)
 	if d.chave != "" {
 		linha(cel{1, "Chave de acesso da NFS-e", formatarChave(d.chave), true})
 	}

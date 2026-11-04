@@ -452,48 +452,12 @@ async function exportarLote(formato, q, total, btn) {
   catch (e) { toast(esc(e.message), "var(--er)"); }
   if (btn) { btn.disabled = false; btn.innerHTML = txt; }
 }
-VIEWS.nfe = el => consultaDocs(el, { modelo: "NFE,NFCE" }, { modelos: ["NFE", "NFCE"], rotulos: ["Emitidas", "Recebidas"], manif: true, antesRecebidos: cardsCaptura });
-VIEWS.servicos = el => consultaDocs(el, { modelo: "NFSE" }, { rotulos: ["Prestadas (emitidas)", "Tomadas (recebidas)"], parteS: "Tomador", parteE: "Prestador", antesSempre: cardsNFSe });
+VIEWS.nfe = el => consultaDocs(el, { modelo: "NFE,NFCE" }, { modelos: ["NFE", "NFCE"], rotulos: ["Emitidas", "Recebidas"], manif: true });
+VIEWS.servicos = el => consultaDocs(el, { modelo: "NFSE" }, { rotulos: ["Prestadas (emitidas)", "Tomadas (recebidas)"], parteS: "Tomador", parteE: "Prestador" });
 
-// Busca de NFS-e no Ambiente de Dados Nacional (ADN), por empresa: certificado próprio ou procuração.
-async function cardsNFSe() {
-  const [nsu, procs] = await Promise.all([api("/captura/status").catch(() => []), api("/procuradores").catch(() => [])]);
-  const emps = estado.empresas.filter(e => !estado.empresa || String(e.id) === estado.empresa);
-  if (!emps.length) return "";
-  return `<div class="grid g2" style="margin-bottom:16px">${emps.map(e => {
-    const n = nsu.find(x => x.empresa_id === e.id && x.servico === "NFSE_ADN") || {};
-    const pr = e.nfse_modo === "PROCURACAO" ? procs.find(p => p.id === e.nfse_procurador_id) : null;
-    const pode = pr || e.tem_certificado;
-    const via = pr ? `Procuração eletrônica · certificado de <b>${esc(pr.nome)}</b>` : e.nfse_modo === "PROCURACAO" ? `<span style="color:var(--er)">Procuração sem procurador escolhido</span>` : e.cert_proprio ? "Certificado da própria empresa" : e.tem_certificado ? `Certificado da matriz ${esc(e.cert_empresa)}` : "Sem certificado — inclua o certificado ou use procuração do contador";
-    return `<div class="card" style="display:flex;gap:14px;align-items:center">
-      <div class="kpi"><div class="ic ${!pode ? "c-wa" : [401, 403].includes(n.ultimo_c_stat) ? "c-er" : "c-pr"}">${svg(pr ? "chave" : "servico")}</div></div>
-      <div style="flex:1"><b>${esc(e.razao_social)}</b><div class="doc-sub">NFS-e Nacional (ADN) · ${via}<br>Última consulta: ${dt(n.ultima_consulta) || "ainda não realizada"}${n.proxima_consulta ? ` · próxima: ${dt(n.proxima_consulta)}` : ""}${n.ultimo_motivo ? `<br>${esc(n.ultimo_motivo)}` : ""}</div></div>
-      ${pode || !ehAdmin() ? "" : `<button class="btn sm" onclick='editarEmpresa(${JSON.stringify(e).replace(/'/g, "&#39;")})'>Configurar</button>`}</div>`;
-  }).join("")}</div>`;
-}
 VIEWS.transporte = el => consultaDocs(el, { modelo: "CTE,MDFE" }, { modelos: ["CTE", "MDFE"] });
 VIEWS.documentos = el => consultaDocs(el, {}, { modelos: ["NFE", "NFCE", "CTE", "MDFE", "NFSE"] });
 
-// Situação da busca automática de NF-e recebidas (Distribuição DF-e), por empresa.
-async function cardsCaptura() {
-  const nsu = await api("/captura/status").catch(() => []);
-  const emps = estado.empresas.filter(e => !estado.empresa || String(e.id) === estado.empresa);
-  if (!emps.length) return "";
-  const agora = new Date();
-  return `<div class="grid g2" style="margin-bottom:16px">${emps.map(e => {
-    const n = nsu.find(x => x.empresa_id === e.id && x.servico === "NFE_DISTDFE") || {};
-    const prox = n.proxima_consulta ? new Date(n.proxima_consulta) : null;
-    const aguarda = prox && prox > agora && [137, 656].includes(n.ultimo_c_stat);
-    const info = !e.tem_certificado ? "Inclua o certificado digital para baixar as notas destinadas à empresa"
-      : `${e.cert_proprio ? "" : `Certificado da matriz ${esc(e.cert_empresa)}<br>`}Última consulta: ${dt(n.ultima_consulta || n.updated_at) || "ainda não realizada"}${prox ? ` · próxima: ${dt(n.proxima_consulta)}` : ""}${n.ultimo_motivo ? `<br>${n.ultimo_c_stat ? n.ultimo_c_stat + " · " : ""}${esc(n.ultimo_motivo)}` : ""}`;
-    return `<div class="card" style="display:flex;gap:14px;align-items:center">
-    <div class="kpi"><div class="ic ${!e.tem_certificado ? "c-wa" : n.ultimo_c_stat === 656 ? "c-er" : "c-pr"}">${svg(e.tem_certificado ? "entrada" : "chave")}</div></div>
-    <div style="flex:1"><b>${esc(e.razao_social)}</b><div class="doc-sub">${info}</div>
-    ${n.concorrente ? `<div class="aviso" style="margin:8px 0 0">Outro sistema também consulta este CNPJ na SEFAZ (ex.: outro monitor de notas). O intervalo foi ampliado para no mínimo 2 horas para evitar bloqueio por consumo indevido (656).</div>` : ""}</div>
-    ${aguarda ? `<span class="st PENDENTE" title="A SEFAZ só libera nova consulta após ${dt(n.proxima_consulta)}">aguardando SEFAZ</span>` : ""}
-    ${!e.tem_certificado && ehAdmin() ? `<button class="btn sm" onclick="mostrar('empresas')">Incluir certificado</button>` : ""}</div>`;
-  }).join("")}</div>`;
-}
 
 /* ---------- Relatórios ---------- */
 VIEWS.relatorios = async el => {
@@ -744,8 +708,20 @@ function formEmpresa(el, d, cert, existente) {
   };
 }
 function editarEmpresa(e) {
-  modal(`<h3>Editar empresa</h3><div class="acoes" style="margin-top:0"><button class="btn sm" id="atualizar-rf">${svg("busca")} Atualizar pela Receita/SEFAZ</button></div><div id="ed-form"></div>`);
+  modal(`<h3>Editar empresa</h3><div class="acoes" style="margin-top:0"><button class="btn sm" id="atualizar-rf">${svg("busca")} Atualizar pela Receita/SEFAZ</button></div><div id="ed-form"></div>
+  <div class="logo-emp"><div class="logo-prev" id="logo-prev">${e.tem_logo ? `<img src="${link(`/empresas/${e.id}/logo`)}&t=${Date.now()}" alt="Logotipo">` : `<span class="muted">sem logotipo</span>`}</div>
+    <div><b>Logotipo da empresa</b><div class="doc-sub">Aparece no DANFE e no DANFSe das notas emitidas por esta empresa. PNG ou JPG, até 1 MB (de preferência com fundo branco ou transparente).</div>
+    <div class="acoes" style="margin:8px 0 0"><label class="btn sm">${svg("mais")} Escolher imagem<input type="file" id="logo-arq" accept="image/png,image/jpeg" hidden></label>${e.tem_logo ? `<button type="button" class="btn sm danger" id="logo-rem">Remover logotipo</button>` : ""}</div></div></div>`);
   formEmpresa($("#ed-form"), { ...e, regime: e.regime }, null, e);
+  $("#logo-arq").onchange = async ev => {
+    const f = ev.target.files[0]; if (!f) return;
+    const fd = new FormData(); fd.append("arquivo", f, f.name);
+    try { await api(`/empresas/${e.id}/logo`, { method: "POST", body: fd }); e.tem_logo = true; toast("Logotipo salvo", "var(--ok)");
+      $("#logo-prev").innerHTML = `<img src="${link(`/empresas/${e.id}/logo`)}&t=${Date.now()}" alt="Logotipo">`; carregarEmpresas(); }
+    catch (er) { toast(esc(er.message), "var(--er)"); }
+  };
+  const rem = $("#logo-rem");
+  if (rem) rem.onclick = async () => { await api(`/empresas/${e.id}/logo`, { method: "DELETE" }); e.tem_logo = false; $("#logo-prev").innerHTML = `<span class="muted">sem logotipo</span>`; rem.remove(); toast("Logotipo removido", "var(--ok)"); carregarEmpresas(); };
   $("#atualizar-rf").onclick = async () => {
     try { const d = await api("/cadastro/cnpj/" + e.cnpj); formEmpresa($("#ed-form"), { ...d, ambiente: e.ambiente, captura_automatica: e.captura_automatica, regime: e.regime, nfse_modo: e.nfse_modo, nfse_procurador_id: e.nfse_procurador_id, usar_cert_matriz: e.usar_cert_matriz }, null, e); toast("Dados atualizados — confira e salve"); }
     catch (er) { toast(esc(er.message), "var(--er)"); }

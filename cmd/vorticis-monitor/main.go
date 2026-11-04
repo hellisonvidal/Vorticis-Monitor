@@ -35,6 +35,7 @@ import (
 	"vorticis.com.br/monitor/internal/api"
 	"vorticis.com.br/monitor/internal/config"
 	"vorticis.com.br/monitor/internal/keystore"
+	"vorticis.com.br/monitor/internal/relatorios"
 	"vorticis.com.br/monitor/internal/sefaz"
 	"vorticis.com.br/monitor/internal/servicos"
 	"vorticis.com.br/monitor/internal/store"
@@ -174,6 +175,7 @@ func executar(ctx context.Context, aoIniciar func(url, dataDir string)) error {
 	}
 	defer st.DB.Close()
 	mon := servicos.Novo(st, cfg, cofre)
+	relatorios.LogoPorCNPJ = st.LogoPorCNPJ
 	monitorAtivo = mon
 	go mon.Iniciar(ctx)
 	srv := &http.Server{
