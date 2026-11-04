@@ -86,7 +86,7 @@ func TestUltimaEmpresaDoUsuario(t *testing.T) {
 	e := &Empresa{CNPJ: "11222333000181", RazaoSocial: "Empresa", UF: "SP"}
 	s.SalvarEmpresa(e)
 	s.CriarUsuario(&Usuario{Login: "Maria", SenhaHash: "x", Perfil: "FISCAL"})
-	if err := s.SalvarUltimaEmpresa("maria", e.ID, ""); err != nil {
+	if err := s.SalvarUltimaEmpresa("maria", e.ID); err != nil {
 		t.Fatal(err)
 	}
 	if u, _ := s.UsuarioPorLogin("maria"); u.UltimaEmpresaID != e.ID {
@@ -96,25 +96,4 @@ func TestUltimaEmpresaDoUsuario(t *testing.T) {
 	if u, _ := s.UsuarioPorLogin("maria"); u.UltimaEmpresaID != 0 {
 		t.Fatal("empresa excluída deve voltar para todas as empresas")
 	}
-}
-
-func TestFiltroPorRaizMatrizEFiliais(t *testing.T) {
-	s, _ := Open(filepath.Join(t.TempDir(), "t.db"))
-	m := &Empresa{CNPJ: "11222333000181", RazaoSocial: "Matriz", UF: "SP"}
-	f := &Empresa{CNPJ: "11222333000262", RazaoSocial: "Filial", UF: "RJ"}
-	o := &Empresa{CNPJ: "99888777000100", RazaoSocial: "Outra", UF: "PR"}
-	for _, e := range []*Empresa{m, f, o} {
-		s.SalvarEmpresa(e)
-	}
-	for i, id := range []int64{m.ID, f.ID, o.ID} {
-		id := id
-		s.SalvarDocumento(&Documento{EmpresaID: &id, Chave: "CH" + string(rune('A'+i)), Modelo: "NFE", Direcao: "S", Status: "AUTORIZADA"}, nil, nil, nil)
-	}
-	if _, n, _ := s.ListarDocumentos(FiltroDocumentos{Raiz: "11222333"}); n != 2 {
-		t.Fatalf("matriz + filiais = %d documentos, esperado 2", n)
-	}
-	if _, n, _ := s.ListarDocumentos(FiltroDocumentos{EmpresaID: f.ID}); n != 1 {
-		t.Fatalf("filial = %d", n)
-	}
-	s.SalvarUltimaEmpresa("x", 0, "11222333")
 }

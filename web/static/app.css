@@ -203,5 +203,4 @@ tr.inativo td{opacity:.55}.card.filial{border-left:3px solid var(--pri-s)}
 .g-painel .kv{grid-template-columns:110px 1fr}
 .emp-acoes .btn-vazio{display:inline-block;width:27px}
 .logo-emp{display:flex;gap:14px;align-items:center;margin-top:14px;padding-top:14px;border-top:1px solid var(--bd)}.logo-prev{width:120px;height:64px;border:1px dashed var(--bd);border-radius:10px;display:grid;place-items:center;background:#fff;flex:none;overflow:hidden}.logo-prev img{max-width:112px;max-height:56px}
-.emp-lista a.filial b{padding-left:14px}.emp-lista a.agregado{border-top:1px dashed var(--bd);border-bottom:1px dashed var(--bd);margin:2px 0}.emp-lista a.agregado b{color:var(--pri)}
-.tag-grupo{font-style:normal;font-size:11px;color:var(--pri);background:var(--pri-s);border-radius:999px;padding:1px 7px;margin-left:4px}
+.emp-lista a.filial b{padding-left:14px}

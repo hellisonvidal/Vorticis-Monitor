@@ -51,7 +51,6 @@ func Open(path string) (*Store, error) {
 		`ALTER TABLE usuario ADD COLUMN ultimo_acesso TEXT`,
 		`ALTER TABLE usuario ADD COLUMN ultima_empresa_id INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE empresa ADD COLUMN logo BLOB`,
-		`ALTER TABLE usuario ADD COLUMN ultima_raiz TEXT`,
 	} {
 		db.Exec(m)
 	}
@@ -617,8 +616,6 @@ type FiltroDocumentos struct {
 	// SemEmpresa: só documentos sem empresa vinculada; Origem: IMPORTACAO, DISTDFE…
 	SemEmpresa bool
 	Origem     string
-	// Raiz: 8 primeiros dígitos do CNPJ — consulta agregada da matriz e filiais.
-	Raiz string
 }
 
 func (f FiltroDocumentos) where() (string, []any) {
@@ -660,9 +657,6 @@ func (f FiltroDocumentos) where() (string, []any) {
 	}
 	if f.SemEmpresa {
 		w = append(w, "empresa_id IS NULL")
-	}
-	if f.Raiz != "" {
-		w, a = append(w, "empresa_id IN (SELECT id FROM empresa WHERE substr(cnpj,1,8) = ?)"), append(a, f.Raiz)
 	}
 	if f.Origem != "" {
 		w, a = append(w, "origem = ?"), append(a, f.Origem)
@@ -1320,11 +1314,9 @@ type Usuario struct {
 	UltimoAcesso string `json:"ultimo_acesso,omitempty"`
 	// UltimaEmpresaID é a última empresa escolhida no seletor (0 = todas); o programa
 	// abre nela no próximo acesso.
-	UltimaEmpresaID int64 `json:"ultima_empresa_id"`
-	// UltimaRaiz: grupo (matriz + filiais) escolhido por último, quando for o caso.
-	UltimaRaiz string `json:"ultima_raiz,omitempty"`
-	CriadoEm   string `json:"criado_em,omitempty"`
-	SenhaHash  string `json:"-"`
+	UltimaEmpresaID int64  `json:"ultima_empresa_id"`
+	CriadoEm        string `json:"criado_em,omitempty"`
+	SenhaHash       string `json:"-"`
 }
 
 func (s *Store) ContarUsuarios() int {
@@ -1346,8 +1338,8 @@ func (s *Store) CriarUsuario(u *Usuario) error {
 
 func (s *Store) UsuarioPorLogin(login string) (*Usuario, error) {
 	u := &Usuario{}
-	err := s.DB.QueryRow(`SELECT id, login, COALESCE(nome,''), perfil, ativo, senha_hash, COALESCE(ultima_empresa_id,0), COALESCE(ultima_raiz,'') FROM usuario WHERE login = ?`, strings.ToLower(login)).
-		Scan(&u.ID, &u.Login, &u.Nome, &u.Perfil, &u.Ativo, &u.SenhaHash, &u.UltimaEmpresaID, &u.UltimaRaiz)
+	err := s.DB.QueryRow(`SELECT id, login, COALESCE(nome,''), perfil, ativo, senha_hash, COALESCE(ultima_empresa_id,0) FROM usuario WHERE login = ?`, strings.ToLower(login)).
+		Scan(&u.ID, &u.Login, &u.Nome, &u.Perfil, &u.Ativo, &u.SenhaHash, &u.UltimaEmpresaID)
 	return u, err
 }
 
@@ -1404,8 +1396,8 @@ func (s *Store) ContarAdminsAtivos(exceto int64) int {
 }
 
 // SalvarUltimaEmpresa grava a empresa escolhida pelo usuário (0 = todas as empresas).
-func (s *Store) SalvarUltimaEmpresa(login string, empresaID int64, raiz string) error {
-	_, err := s.DB.Exec(`UPDATE usuario SET ultima_empresa_id = ?, ultima_raiz = ? WHERE login = ?`, empresaID, raiz, strings.ToLower(login))
+func (s *Store) SalvarUltimaEmpresa(login string, empresaID int64) error {
+	_, err := s.DB.Exec(`UPDATE usuario SET ultima_empresa_id = ? WHERE login = ?`, empresaID, strings.ToLower(login))
 	return err
 }
 

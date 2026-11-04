@@ -142,9 +142,8 @@ async function entrar() {
   estado.eu = await api("/auth/eu").catch(() => ({ perfil: "ADMIN" }));
   $("#app").classList.remove("hidden");
   $("#eu-nome").textContent = estado.eu.nome || estado.eu.login || "";
-  // Abre na última empresa (ou grupo matriz + filiais) consultada por este usuário.
-  if (estado.eu.ultima_raiz) estado.empresa = "r:" + estado.eu.ultima_raiz;
-  else if (estado.eu.ultima_empresa_id) estado.empresa = String(estado.eu.ultima_empresa_id);
+  // Abre na última empresa consultada por este usuário.
+  if (estado.eu.ultima_empresa_id) estado.empresa = String(estado.eu.ultima_empresa_id);
   validarEmpresa();
   if (MENU.find(m => m.v === estado.view)?.admin && !ehAdmin()) estado.view = "painel";
   $("#menu").innerHTML = MENU.filter(m => !m.admin || ehAdmin()).map(m => m.grupo ? `<div class="grupo">${m.grupo}</div>` : `<a data-v="${m.v}" title="${m.t}">${svg(m.i)}<span>${m.t}</span></a>`).join("");
@@ -163,42 +162,30 @@ async function carregarEmpresas() {
 const semAcento = s => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 const empRaiz = e => (e.cnpj || "").slice(0, 8);
 const empOrdem = () => [...estado.empresas].sort((a, b) => empRaiz(a).localeCompare(empRaiz(b)) || (b.matriz - a.matriz) || a.cnpj.localeCompare(b.cnpj));
-// A consulta é sempre de uma empresa ("<id>") ou do grupo matriz + filiais ("r:<raiz do CNPJ>").
-const raizFmt = r => r.replace(/^(..)(...)(...)$/, "$1.$2.$3");
-const grupo = r => empOrdem().filter(e => e.cnpj.length === 14 && empRaiz(e) === r);
-const selRaiz = () => estado.empresa.startsWith("r:") ? estado.empresa.slice(2) : "";
-const empresasDoFiltro = () => { const r = selRaiz(); return r ? grupo(r) : estado.empresas.filter(e => String(e.id) === estado.empresa); };
+// A consulta é sempre de uma única empresa.
+const empresasDoFiltro = () => estado.empresas.filter(e => String(e.id) === estado.empresa);
 function validarEmpresa() {
-  const r = selRaiz();
-  const ok = r ? grupo(r).length > 1 : estado.empresas.some(e => String(e.id) === estado.empresa);
+  const ok = estado.empresas.some(e => String(e.id) === estado.empresa);
   if (!ok) estado.empresa = estado.empresas.length ? String(empOrdem()[0].id) : "";
   localStorage.setItem("vtx_emp", estado.empresa); rotuloEmpresa();
 }
 function rotuloEmpresa() {
-  const r = selRaiz(), e = estado.empresas.find(x => String(x.id) === estado.empresa);
-  if (r) { const g = grupo(r), m = g.find(x => x.matriz) || g[0]; $("#emp-rot").innerHTML = `<b>${raizFmt(r)}</b> ${esc(m?.razao_social)} <i class="tag-grupo">matriz + ${g.length - 1} filial(is)</i>`; }
-  else $("#emp-rot").innerHTML = e ? `<b>${docFmt(e.cnpj)}</b> ${esc(e.razao_social)}` : "Nenhuma empresa cadastrada";
+  const e = estado.empresas.find(x => String(x.id) === estado.empresa);
+  $("#emp-rot").innerHTML = e ? `<b>${docFmt(e.cnpj)}</b> ${esc(e.razao_social)}` : "Nenhuma empresa cadastrada";
 }
 function listaEmpresas() {
   const t = $("#emp-busca").value.trim(), dig = t.replace(/\D/g, ""), txt = semAcento(t);
   const achou = empOrdem().filter(e => !t || (dig && e.cnpj.includes(dig)) || semAcento(e.razao_social).includes(txt));
   const it = (id, html, on, cls = "") => `<a data-emp="${id}" class="${on ? "on" : ""} ${cls}">${html}</a>`;
-  // Depois da matriz (ou da 1ª empresa da raiz), a opção agregada "Matriz e filiais".
-  const vistas = new Set();
-  $("#emp-lista").innerHTML = achou.map(e => {
-    let h = it(e.id, `<b>${docFmt(e.cnpj)}</b><span>${esc(e.razao_social)}</span>${e.cnpj.length === 14 && !e.matriz ? `<i>filial</i>` : ""}`, String(e.id) === estado.empresa, e.cnpj.length === 14 && !e.matriz ? "filial" : "");
-    const r = empRaiz(e), g = e.cnpj.length === 14 ? grupo(r) : [];
-    if (g.length > 1 && !vistas.has(r)) { vistas.add(r); h += it("r:" + r, `<b>${raizFmt(r)}</b><span>Matriz e filiais (todas as ${g.length})</span><i>agregado</i>`, estado.empresa === "r:" + r, "agregado"); }
-    return h;
-  }).join("") +
+  $("#emp-lista").innerHTML = achou.map(e => it(e.id, `<b>${docFmt(e.cnpj)}</b><span>${esc(e.razao_social)}</span>${e.cnpj.length === 14 && !e.matriz ? `<i>filial</i>` : ""}`,
+    String(e.id) === estado.empresa, e.cnpj.length === 14 && !e.matriz ? "filial" : "")).join("") +
     (t && !achou.length ? `<div class="muted" style="padding:10px 12px">Nenhuma empresa com "${esc(t)}"</div>` : "");
   $$("#emp-lista a").forEach(a => a.onclick = () => escolherEmpresa(a.dataset.emp));
 }
 function escolherEmpresa(id) {
   $("#emp-pop").classList.add("hidden");
   estado.empresa = String(id); localStorage.setItem("vtx_emp", estado.empresa); rotuloEmpresa(); estado.pagina = 1; mostrar(estado.view);
-  const r = selRaiz();
-  api("/auth/eu/empresa", { method: "PUT", json: { empresa_id: r ? 0 : +estado.empresa || 0, raiz: r } }).catch(() => { });
+  api("/auth/eu/empresa", { method: "PUT", json: { empresa_id: +estado.empresa || 0 } }).catch(() => { });
 }
 $("#emp-btn").onclick = ev => {
   ev.stopPropagation(); const p = $("#emp-pop"), abrir = p.classList.contains("hidden");
@@ -326,8 +313,7 @@ async function sincronizar(tipos) {
 }
 function qsBase(extra = {}) {
   const q = new URLSearchParams({ de: estado.de, ate: estado.ate, ...extra });
-  if (selRaiz()) q.set("raiz", selRaiz());
-  else if (estado.empresa) q.set("empresa_id", estado.empresa);
+  if (estado.empresa) q.set("empresa_id", estado.empresa);
   for (const [k, v] of [...q]) if (!v) q.delete(k);
   return q;
 }

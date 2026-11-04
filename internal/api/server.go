@@ -25,7 +25,7 @@ import (
 	"vorticis.com.br/monitor/internal/store"
 )
 
-const Versao = "1.10.3"
+const Versao = "1.10.4"
 
 type Server struct {
 	M      *servicos.Monitor
@@ -181,9 +181,6 @@ func filtro(r *http.Request) store.FiltroDocumentos {
 	q := r.URL.Query()
 	f := store.FiltroDocumentos{Status: q.Get("status"), Modelo: q.Get("modelo"), Direcao: q.Get("direcao"), De: q.Get("de"), Ate: q.Get("ate"), Busca: q.Get("q"), SoComErro: q.Get("com_erro") == "1"}
 	f.EmpresaID, _ = strconv.ParseInt(q.Get("empresa_id"), 10, 64)
-	if r := fiscal.SoDigitos(q.Get("raiz")); len(r) == 8 {
-		f.Raiz = r
-	}
 	f.Pagina, _ = strconv.Atoi(q.Get("pagina"))
 	f.PorPagina, _ = strconv.Atoi(q.Get("por_pagina"))
 	if p := q.Get("periodo"); p != "" {
@@ -569,18 +566,6 @@ func (s *Server) relatorio(w http.ResponseWriter, r *http.Request) {
 		if e, err := s.M.Store.ObterEmpresa(f.EmpresaID); err == nil {
 			partes = append(partes, "Empresa: "+e.RazaoSocial+" ("+relatorios.FormatarDoc(e.CNPJ)+")")
 		}
-	} else if f.Raiz != "" {
-		emps, _ := s.M.Store.ListarEmpresas()
-		nome, n := "", 0
-		for _, e := range emps {
-			if len(e.CNPJ) == 14 && e.CNPJ[:8] == f.Raiz {
-				n++
-				if nome == "" || e.Matriz {
-					nome = e.RazaoSocial
-				}
-			}
-		}
-		partes = append(partes, fmt.Sprintf("Empresa: %s — matriz e filiais (%d estabelecimento(s), raiz %s)", nome, n, f.Raiz[:2]+"."+f.Raiz[2:5]+"."+f.Raiz[5:]))
 	} else {
 		partes = append(partes, "Todas as empresas")
 	}
@@ -1405,8 +1390,7 @@ func (s *Server) eu(w http.ResponseWriter, r *http.Request) {
 // salvarUltimaEmpresa lembra a empresa escolhida no seletor para o próximo acesso.
 func (s *Server) salvarUltimaEmpresa(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		EmpresaID int64  `json:"empresa_id"`
-		Raiz      string `json:"raiz"`
+		EmpresaID int64 `json:"empresa_id"`
 	}
 	if err := ler(r, &in); err != nil {
 		erro(w, 400, "JSON inválido")
@@ -1419,11 +1403,7 @@ func (s *Server) salvarUltimaEmpresa(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if usuario(r) != "api" {
-		raiz := fiscal.SoDigitos(in.Raiz)
-		if len(raiz) != 8 {
-			raiz = ""
-		}
-		s.M.Store.SalvarUltimaEmpresa(usuario(r), in.EmpresaID, raiz)
+		s.M.Store.SalvarUltimaEmpresa(usuario(r), in.EmpresaID)
 	}
 	jsonOK(w, map[string]bool{"ok": true})
 }
