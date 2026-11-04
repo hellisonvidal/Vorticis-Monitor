@@ -2,6 +2,7 @@ package relatorios
 
 import (
 	"bytes"
+	_ "embed"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -20,6 +21,12 @@ import (
 // intermediário, serviço com a descrição integral, tributação municipal e
 // federal, retenções, valor líquido, tributos aproximados e informações
 // complementares.
+
+// logoNFSe é o logotipo da NFS-e (Nota Fiscal de Serviço eletrônica) do Sistema
+// Nacional, impresso no cabeçalho do DANFSe.
+//
+//go:embed img/logo_nfse.png
+var logoNFSe []byte
 
 // no é um elemento do XML (nomes locais, sem namespace).
 type no struct {
@@ -533,27 +540,18 @@ func DANFSe(w io.Writer, doc *store.Documento) error {
 		pdf.SetTextColor(0, 0, 0)
 	}
 
-	// Cabeçalho: selo NFS-e | título | município emissor
-	pdf.SetFillColor(14, 94, 140)
-	pdf.RoundedRect(x0, y+1, 16, 10, 1.6, "14", "F")
-	pdf.SetFillColor(32, 150, 90)
-	pdf.RoundedRect(x0+16, y+1, 10, 10, 1.6, "23", "F")
-	pdf.SetTextColor(255, 255, 255)
-	pdf.SetFont("Helvetica", "B", 11.5)
-	pdf.SetXY(x0, y+1)
-	pdf.CellFormat(16, 10, "NFS", "", 0, "C", false, 0, "")
-	pdf.SetXY(x0+16, y+1)
-	pdf.CellFormat(10, 10, "-e", "", 0, "C", false, 0, "")
-	pdf.SetTextColor(0, 0, 0)
+	// Cabeçalho: logotipo da NFS-e | logotipo do prestador | título | município emissor
+	pdf.RegisterImageOptionsReader("logo-nfse", fpdf.ImageOptions{ImageType: "PNG", ReadDpi: true}, bytes.NewReader(logoNFSe))
+	desenharLogo(pdf, "logo-nfse", x0, y-1, 25, 18.5)
 	if lg := registrarLogo(pdf, fiscal.SoDigitos(d.prest.doc)); lg != "" {
-		desenharLogo(pdf, lg, x0+29, y, 26, 13)
+		desenharLogo(pdf, lg, x0+28, y, 26, 15)
 	}
-	pdf.SetXY(x0+55, y+1)
+	pdf.SetXY(x0+55, y+3)
 	pdf.SetFont("Helvetica", "B", 12)
 	pdf.CellFormat(80, 5.5, "DANFSe v1.0", "", 2, "C", false, 0, "")
 	pdf.SetFont("Helvetica", "B", 8)
 	pdf.CellFormat(80, 4, tr("Documento Auxiliar da NFS-e"), "", 2, "C", false, 0, "")
-	pdf.SetXY(x0+135, y+1)
+	pdf.SetXY(x0+135, y+3)
 	pdf.SetFont("Helvetica", "B", 7.5)
 	pdf.MultiCell(55, 3.4, tr(ou(d.municipioEmissor)), "", "R", false)
 	pdf.SetFont("Helvetica", "", 6.3)
@@ -563,7 +561,7 @@ func DANFSe(w io.Writer, doc *store.Documento) error {
 		sub = "Prefeitura emissora (padrão ABRASF)"
 	}
 	pdf.MultiCell(55, 3, tr(sub), "", "R", false)
-	y += 14
+	y += 18
 	if aviso := juntar(" · ", avisoStatus(doc), d.homologacao); aviso != "" {
 		pdf.SetTextColor(190, 20, 20)
 		pdf.SetFont("Helvetica", "B", 8.5)

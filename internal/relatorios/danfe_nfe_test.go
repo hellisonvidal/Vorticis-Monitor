@@ -52,3 +52,20 @@ func TestDANFENFeCompleto(t *testing.T) {
 		}
 	}
 }
+
+func TestNomesDosArquivos(t *testing.T) {
+	d := &store.Documento{Modelo: "NFE", Numero: "000101", EmitNome: "INDÚSTRIA GAÚCHA S/A", Chave: "43261087654321000198550010000558711100558714"}
+	if n := NomePDF(d); n != "NF 101 - INDÚSTRIA GAÚCHA S A.pdf" {
+		t.Fatalf("NF-e: %q", n)
+	}
+	d.Modelo, d.Numero, d.EmitNome = "NFSE", "66", "JOAO LUIS DOS SANTOS DA SILVA 72633034934"
+	if n := NomePDF(d); n != "NFS 66 - JOAO LUIS DOS SANTOS DA SILVA 72633034934.pdf" {
+		t.Fatalf("NFS-e: %q", n)
+	}
+	if n := NomeChave(d, "pdf"); n != d.Chave+".pdf" {
+		t.Fatalf("chave: %q", n)
+	}
+	if cd := ContentDisposition("attachment", "NF 1 - AÇÃO.pdf"); !strings.Contains(cd, `filename="NF 1 - ACAO.pdf"`) || !strings.Contains(cd, "filename*=UTF-8''NF%201%20-%20A%C3%87%C3%83O.pdf") {
+		t.Fatalf("content-disposition: %s", cd)
+	}
+}

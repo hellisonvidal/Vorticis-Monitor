@@ -11,6 +11,7 @@ Arquitetura completa (ERD, motor de regras, máquina de estados, endpoints): [`d
 - **Relatórios** (relação de documentos, resumo de tributos, por fornecedor/cliente, por CFOP, manifestação das NF-e recebidas) exportados em **PDF, Excel XLSX e CSV**, com escolha dos **campos do relatório** (botão Campos mostra todos os campos para marcar/desmarcar, ou o × no título da coluna tira o campo; a escolha fica salva por relatório).
 - **Salvar senha e login automático** (opcional, na tela de entrada): o computador guarda só uma credencial assinada de 180 dias, invalidada se a senha for trocada.
 - **Botão Consultar único:** em cada tela, o botão azul **Consultar** busca as notas novas na SEFAZ (NF-e, inclusive autXML do contador) e/ou no Ambiente Nacional (NFS-e) e consulta o período — sem botões "Buscar agora" separados. A busca automática continua rodando em segundo plano.
+- **Nomes dos arquivos:** PDF de NF-e "NF 123 - Fornecedor.pdf" e de NFS-e "NFS 66 - Fornecedor.pdf" (fornecedor = emitente/prestador; NFC, CT e MDF no mesmo padrão); XML e pedidos de PDF + XML pela chave de acesso.
 - **Um documento ou um lote:** "Baixar XML" / "Baixar PDF" de uma nota baixam o arquivo direto; o ZIP é usado só para lotes. Todas as telas de consulta têm **Limpar filtros** (volta ao mês atual e tira pesquisa, modelo, situação e seleção).
 - **XML e PDF em lote:** nas telas de consulta, os botões **XML em lote**, **PDF em lote** e **XML + PDF** geram um ZIP (organizado por modelo e movimento) com as notas marcadas ou, sem seleção, com todas as do filtro. **DANFE completo da NF-e** no leiaute oficial (canhoto, emitente com logotipo, chave com código de barras, destinatário, faturas, cálculo do imposto, transportador e volumes, produtos, ISSQN e dados adicionais; marca d'água para homologação/cancelada), DACTE/DAMDFE simplificados e **DANFSe no formato do DANFSe v1.0 do Portal Nacional** (mesmas seções e campos, QR Code de autenticidade) (Padrão Nacional ou ABRASF): prestador, tomador, intermediário, descrição integral do serviço, tributação municipal e federal, retenções, valor líquido, tributos aproximados e informações complementares.
 - **Filiais:** em Empresas › **Incluir filial**, informe o CNPJ da filial; sem certificado próprio, ela usa automaticamente o **certificado da matriz** (mesma raiz de CNPJ) na SEFAZ e no Ambiente Nacional da NFS-e.
@@ -32,8 +33,8 @@ São **duas versões separadas** — escolha uma:
 
 | Versão | Arquivo | Para quê |
 |---|---|---|
-| **Instalador** | `instalador/VorticisMonitor-Setup-1.10.1.exe` | Instala o programa para o usuário atual — **não exige administrador** —, com atalhos, inicialização automática opcional e desinstalador. Dados em `%LOCALAPPDATA%\Vorticis\Monitor`. |
-| **Portátil** | `portatil/VorticisMonitor-Portatil-1.10.1.exe` | Arquivo único, sem instalação: coloque numa pasta ou pendrive e abra. Dados na pasta `dados` criada ao lado do arquivo. |
+| **Instalador** | `instalador/VorticisMonitor-Setup-1.10.2.exe` | Instala o programa para o usuário atual — **não exige administrador** —, com atalhos, inicialização automática opcional e desinstalador. Dados em `%LOCALAPPDATA%\Vorticis\Monitor`. |
+| **Portátil** | `portatil/VorticisMonitor-Portatil-1.10.2.exe` | Arquivo único, sem instalação: coloque numa pasta ou pendrive e abra. Dados na pasta `dados` criada ao lado do arquivo. |
 
 `SHA256SUMS.txt` traz os hashes para conferência da integridade.
 

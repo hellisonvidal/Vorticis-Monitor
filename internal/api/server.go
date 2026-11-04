@@ -25,7 +25,7 @@ import (
 	"vorticis.com.br/monitor/internal/store"
 )
 
-const Versao = "1.10.1"
+const Versao = "1.10.2"
 
 type Server struct {
 	M      *servicos.Monitor
@@ -1098,16 +1098,17 @@ func (s *Server) pdf(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	its, _ := s.M.Store.Itens(d.ID)
-	nome := d.Chave
-	if d.Numero != "" {
-		nome = d.Modelo + "_" + d.Numero + "_" + d.Chave
+	// "NF 123 - Fornecedor.pdf"; com ?chave=1 (pedido de PDF + XML), pela chave de acesso.
+	nome := relatorios.NomePDF(d)
+	if r.URL.Query().Get("chave") == "1" {
+		nome = relatorios.NomeChave(d, "pdf")
 	}
 	w.Header().Set("Content-Type", "application/pdf")
 	disp := "inline"
 	if r.URL.Query().Get("baixar") == "1" {
 		disp = "attachment"
 	}
-	w.Header().Set("Content-Disposition", disp+`; filename="`+nome+`.pdf"`)
+	w.Header().Set("Content-Disposition", relatorios.ContentDisposition(disp, nome))
 	if err := relatorios.PDF(w, d, its); err != nil {
 		erro(w, 500, err.Error())
 	}

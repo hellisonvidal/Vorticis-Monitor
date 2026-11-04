@@ -78,7 +78,8 @@ function toast(msg, cor) {
 const link = p => "/api/v1" + p + (p.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(estado.token);
 async function baixar(resp, nomePadrao) {
   const cd = resp.headers.get("content-disposition") || "";
-  const nome = (cd.match(/filename="([^"]+)"/) || [])[1] || nomePadrao;
+  const utf = (cd.match(/filename\*=UTF-8''([^;]+)/i) || [])[1];
+  const nome = (utf && decodeURIComponent(utf)) || (cd.match(/filename="([^"]+)"/) || [])[1] || nomePadrao;
   const url = URL.createObjectURL(await resp.blob());
   const a = Object.assign(document.createElement("a"), { href: url, download: nome }); document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 30000);
@@ -395,7 +396,8 @@ async function baixarUm(chave, formato) {
   const c = encodeURIComponent(chave);
   try {
     if (formato !== "pdf") await baixar(await api(`/documentos/${c}/xml`, { blob: true }), chave + ".xml");
-    if (formato !== "xml") await baixar(await api(`/documentos/${c}/pdf?baixar=1`, { blob: true }), chave + ".pdf");
+    // PDF sozinho: "NF 123 - Fornecedor.pdf"; PDF + XML: os dois pela chave de acesso.
+    if (formato !== "xml") await baixar(await api(`/documentos/${c}/pdf?baixar=1${formato === "ambos" ? "&chave=1" : ""}`, { blob: true }), chave + ".pdf");
     toast("Arquivo salvo em Downloads", "var(--ok)");
   } catch (e) { toast(esc(e.message), "var(--er)"); }
 }
