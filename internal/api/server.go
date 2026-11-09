@@ -25,7 +25,7 @@ import (
 	"vorticis.com.br/monitor/internal/store"
 )
 
-const Versao = "1.9.1"
+const Versao = "1.10.5"
 
 type Server struct {
 	M      *servicos.Monitor
@@ -54,6 +54,12 @@ func (s *Server) Handler() http.Handler {
 	}))
 	mux.HandleFunc("PUT /api/v1/empresas/{id}", admin(s.salvarEmpresa))
 	mux.HandleFunc("DELETE /api/v1/empresas/{id}", admin(s.excluirEmpresa))
+	mux.HandleFunc("GET /api/v1/empresas/{id}/logo", auth(s.obterLogo))
+	mux.HandleFunc("POST /api/v1/empresas/{id}/logo", admin(s.enviarLogo))
+	mux.HandleFunc("DELETE /api/v1/empresas/{id}/logo", admin(func(w http.ResponseWriter, r *http.Request) {
+		s.M.Store.SalvarLogo(idPath(r, "id"), nil)
+		jsonOK(w, map[string]bool{"ok": true})
+	}))
 	mux.HandleFunc("POST /api/v1/empresas/{id}/certificado", admin(s.enviarCertificado))
 	mux.HandleFunc("GET /api/v1/empresas/{id}/certificado", auth(s.obterCertificado))
 	mux.HandleFunc("DELETE /api/v1/empresas/{id}/certificado", admin(s.removerCertificado))
@@ -365,6 +371,50 @@ func (s *Server) salvarEmpresa(w http.ResponseWriter, r *http.Request) {
 	s.M.InvalidarCliente(e.ID)
 	s.M.Store.Auditar(usuario(r), "SALVAR_EMPRESA", "empresa", strconv.FormatInt(e.ID, 10), e.CNPJ)
 	jsonOK(w, e)
+}
+
+// enviarLogo recebe o logotipo (PNG ou JPEG, até 1 MB) usado no DANFE/DANFSe.
+func (s *Server) enviarLogo(w http.ResponseWriter, r *http.Request) {
+	id := idPath(r, "id")
+	if _, err := s.M.Store.ObterEmpresa(id); err != nil {
+		erro(w, 404, "empresa não encontrada")
+		return
+	}
+	if err := r.ParseMultipartForm(2 << 20); err != nil {
+		erro(w, 400, "envie a imagem do logotipo (PNG ou JPG, até 1 MB)")
+		return
+	}
+	f, _, err := r.FormFile("arquivo")
+	if err != nil {
+		erro(w, 400, "envie a imagem do logotipo (PNG ou JPG, até 1 MB)")
+		return
+	}
+	defer f.Close()
+	b, _ := io.ReadAll(io.LimitReader(f, 1<<20+1))
+	if len(b) > 1<<20 {
+		erro(w, 400, "imagem maior que 1 MB")
+		return
+	}
+	if ct := http.DetectContentType(b); ct != "image/png" && ct != "image/jpeg" {
+		erro(w, 400, "use uma imagem PNG ou JPG")
+		return
+	}
+	if err := s.M.Store.SalvarLogo(id, b); err != nil {
+		erro(w, 500, err.Error())
+		return
+	}
+	jsonOK(w, map[string]bool{"ok": true})
+}
+
+func (s *Server) obterLogo(w http.ResponseWriter, r *http.Request) {
+	b := s.M.Store.Logo(idPath(r, "id"))
+	if len(b) == 0 {
+		erro(w, 404, "sem logotipo")
+		return
+	}
+	w.Header().Set("Content-Type", http.DetectContentType(b))
+	w.Header().Set("Cache-Control", "no-store")
+	w.Write(b)
 }
 
 // excluirEmpresa remove a empresa (ou filial). ?documentos=excluir apaga também as
@@ -1048,16 +1098,17 @@ func (s *Server) pdf(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	its, _ := s.M.Store.Itens(d.ID)
-	nome := d.Chave
-	if d.Numero != "" {
-		nome = d.Modelo + "_" + d.Numero + "_" + d.Chave
+	// "NF 123 - Fornecedor.pdf"; com ?chave=1 (pedido de PDF + XML), pela chave de acesso.
+	nome := relatorios.NomePDF(d)
+	if r.URL.Query().Get("chave") == "1" {
+		nome = relatorios.NomeChave(d, "pdf")
 	}
 	w.Header().Set("Content-Type", "application/pdf")
 	disp := "inline"
 	if r.URL.Query().Get("baixar") == "1" {
 		disp = "attachment"
 	}
-	w.Header().Set("Content-Disposition", disp+`; filename="`+nome+`.pdf"`)
+	w.Header().Set("Content-Disposition", relatorios.ContentDisposition(disp, nome))
 	if err := relatorios.PDF(w, d, its); err != nil {
 		erro(w, 500, err.Error())
 	}

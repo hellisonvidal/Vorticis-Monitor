@@ -50,6 +50,7 @@ func Open(path string) (*Store, error) {
 		`ALTER TABLE empresa ADD COLUMN usar_cert_matriz INTEGER NOT NULL DEFAULT 1`,
 		`ALTER TABLE usuario ADD COLUMN ultimo_acesso TEXT`,
 		`ALTER TABLE usuario ADD COLUMN ultima_empresa_id INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE empresa ADD COLUMN logo BLOB`,
 	} {
 		db.Exec(m)
 	}
@@ -94,11 +95,13 @@ type Empresa struct {
 	CertEmpresaID  int64  `json:"cert_empresa_id,omitempty"`
 	CertEmpresa    string `json:"cert_empresa,omitempty"`
 	Matriz         bool   `json:"matriz"`
+	// TemLogo: logotipo cadastrado, usado no DANFE/DANFSe das notas emitidas pela empresa.
+	TemLogo bool `json:"tem_logo"`
 }
 
 const empCols = `id, cnpj, razao_social, uf, COALESCE(ie,''), COALESCE(cod_mun,''), regime, ambiente, captura_automatica, ciencia_automatica, ativo,
  EXISTS(SELECT 1 FROM certificado c WHERE c.empresa_id = empresa.id AND c.ativo = 1),
- COALESCE(nfse_modo,'PROPRIO'), COALESCE(nfse_procurador_id,0), COALESCE(usar_cert_matriz,1),
+ COALESCE(nfse_modo,'PROPRIO'), COALESCE(nfse_procurador_id,0), COALESCE(usar_cert_matriz,1), COALESCE(length(logo),0) > 0,
  COALESCE((SELECT e2.id FROM empresa e2 WHERE substr(e2.cnpj,1,8) = substr(empresa.cnpj,1,8) AND e2.id <> empresa.id AND length(empresa.cnpj) = 14
    AND EXISTS(SELECT 1 FROM certificado c2 WHERE c2.empresa_id = e2.id AND c2.ativo = 1)
    ORDER BY substr(e2.cnpj,9,4) = '0001' DESC, e2.id LIMIT 1), 0)`
@@ -106,7 +109,7 @@ const empCols = `id, cnpj, razao_social, uf, COALESCE(ie,''), COALESCE(cod_mun,'
 func scanEmpresa(r interface{ Scan(...any) error }) (*Empresa, error) {
 	e := &Empresa{}
 	var raiz int64
-	err := r.Scan(&e.ID, &e.CNPJ, &e.RazaoSocial, &e.UF, &e.IE, &e.CodMun, &e.Regime, &e.Ambiente, &e.CapturaAutomatica, &e.CienciaAutomatica, &e.Ativo, &e.TemCertificado, &e.NFSeModo, &e.NFSeProcuradorID, &e.UsarCertMatriz, &raiz)
+	err := r.Scan(&e.ID, &e.CNPJ, &e.RazaoSocial, &e.UF, &e.IE, &e.CodMun, &e.Regime, &e.Ambiente, &e.CapturaAutomatica, &e.CienciaAutomatica, &e.Ativo, &e.TemCertificado, &e.NFSeModo, &e.NFSeProcuradorID, &e.UsarCertMatriz, &e.TemLogo, &raiz)
 	e.CertProprio = e.TemCertificado
 	e.Matriz = len(e.CNPJ) == 14 && e.CNPJ[8:12] == "0001"
 	if !e.CertProprio && e.UsarCertMatriz && raiz > 0 {
@@ -178,6 +181,38 @@ func (s *Store) SalvarEmpresa(e *Empresa) error {
 	_, err := s.DB.Exec(`UPDATE empresa SET razao_social=?, uf=?, ie=?, cod_mun=?, regime=?, ambiente=?, captura_automatica=?, ciencia_automatica=?, ativo=?, usar_cert_matriz=? WHERE id=?`,
 		e.RazaoSocial, strings.ToUpper(e.UF), e.IE, e.CodMun, e.Regime, e.Ambiente, e.CapturaAutomatica, e.CienciaAutomatica, e.Ativo, e.UsarCertMatriz, e.ID)
 	return err
+}
+
+// ExcluirDocumento remove um documento (itens, ocorrências e eventos vão junto).
+func (s *Store) ExcluirDocumento(chave string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := s.DB.Exec(`DELETE FROM documento WHERE chave = ?`, chave)
+	return err
+}
+
+// SalvarLogo grava (ou remove, com nil) o logotipo da empresa.
+func (s *Store) SalvarLogo(id int64, img []byte) error {
+	var v any
+	if len(img) > 0 {
+		v = img
+	}
+	_, err := s.DB.Exec(`UPDATE empresa SET logo = ? WHERE id = ?`, v, id)
+	return err
+}
+
+// Logo devolve o logotipo da empresa (nil se não houver).
+func (s *Store) Logo(id int64) []byte {
+	var b []byte
+	s.DB.QueryRow(`SELECT logo FROM empresa WHERE id = ?`, id).Scan(&b)
+	return b
+}
+
+// LogoPorCNPJ devolve o logotipo da empresa cadastrada com o CNPJ (nil se não houver).
+func (s *Store) LogoPorCNPJ(cnpj string) []byte {
+	var b []byte
+	s.DB.QueryRow(`SELECT logo FROM empresa WHERE cnpj = ?`, fiscal.NormalizaCNPJ(cnpj)).Scan(&b)
+	return b
 }
 
 // ContarDocumentosEmpresa devolve quantos documentos estão vinculados à empresa.
@@ -578,6 +613,9 @@ type FiltroDocumentos struct {
 	Pagina    int
 	PorPagina int
 	SoComErro bool
+	// SemEmpresa: só documentos sem empresa vinculada; Origem: IMPORTACAO, DISTDFE…
+	SemEmpresa bool
+	Origem     string
 }
 
 func (f FiltroDocumentos) where() (string, []any) {
@@ -616,6 +654,12 @@ func (f FiltroDocumentos) where() (string, []any) {
 	}
 	if f.SoComErro {
 		w = append(w, "(erros > 0 OR status IN ('REJEITADA','DENEGADA'))")
+	}
+	if f.SemEmpresa {
+		w = append(w, "empresa_id IS NULL")
+	}
+	if f.Origem != "" {
+		w, a = append(w, "origem = ?"), append(a, f.Origem)
 	}
 	return strings.Join(w, " AND "), a
 }
