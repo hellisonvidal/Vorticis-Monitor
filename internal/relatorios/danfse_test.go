@@ -23,11 +23,19 @@ func TestDANFSeNacionalCompleto(t *testing.T) {
 		"tomador":   {d.toma.nome, "PONTA SERVICE TRANSPORTES RODOVIARIOS LTDA"},
 		"tomEnd":    {d.toma.ender, "AVENIDA DAS CATARATAS, 5000, JARDIM"},
 		"simples":   {d.simples, "Optante - Microempreendedor Individual (MEI)"},
-		"trib":      {d.tribISSQN, "Operação tributável"},
-		"ret":       {d.retISS, "Não retido"},
+		"emitente":  {d.emitente, "Prestador"},
+		"situacao":  {d.situacao, "NFS-e Gerada"},
+		"codTrib":   {d.codTrib, "14.04.01"},
+		"nbs":       {d.nbs, "1.2001.23.00"},
+		"local":     {d.localPrestacao, "Foz do Iguaçu / PR / BR"},
+		"tomMun":    {d.toma.municipio, "Foz do Iguaçu / PR"},
+		"tomIBGE":   {d.toma.ibgeCep, "4108304 / 85860-000"},
+		"emissao":   {d.emissaoNFSe, "03/11/2026 15:06:32"},
+		"trib":      {d.tribISSQN, "Operação Tributável"},
+		"ret":       {d.retISS, "Não Retido"},
 		"liq":       {moeda(d.vLiq), "R$ 2.375,00"},
 		"iss":       {moeda(d.vISS), "R$ 47,50"},
-		"tot":       {d.totTrib, "Simples Nacional: 6%"},
+		"tot":       {d.totais, "Simples Nacional: 6,00%"},
 	}
 	for k, v := range espera {
 		if v[0] != v[1] {
@@ -55,11 +63,46 @@ func TestDANFSeABRASF(t *testing.T) {
 <TomadorServico><IdentificacaoTomador><CpfCnpj><Cnpj>11222333000181</Cnpj></CpfCnpj></IdentificacaoTomador><RazaoSocial>TOMADORA SA</RazaoSocial></TomadorServico><OptanteSimplesNacional>2</OptanteSimplesNacional></InfDeclaracaoPrestacaoServico></DeclaracaoPrestacaoServico></InfNfse></Nfse></CompNfse>`)
 	d := extrairABRASF(lerArvore(x))
 	if d.numero != "123" || d.prest.nome != "PRESTADORA ABRASF LTDA" || d.prest.doc != "22.334.455/0001-86" || d.toma.nome != "TOMADORA SA" ||
-		d.descricao != "Consultoria em gestão fiscal" || d.retISS != "Retido" || moeda(d.vISSRet) != "R$ 50,00" || moeda(d.vLiq) != "R$ 950,00" || d.prest.im != "998877" {
+		d.descricao != "Consultoria em gestão fiscal" || d.retISS != "Retido" || moeda(d.vTotRet) != "R$ 65,00" || moeda(d.vLiq) != "R$ 950,00" || d.prest.im != "998877" {
 		t.Fatalf("ABRASF: %+v", d)
 	}
 	var b bytes.Buffer
 	if err := DANFSe(&b, &store.Documento{Modelo: "NFSE", XML: string(x), Status: "AUTORIZADA"}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestDANFSeIBSCBS(t *testing.T) {
+	x, err := os.ReadFile("testdata/nfse_ibscbs.xml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := extrairNacional(lerArvore(x))
+	espera := map[string][2]string{
+		"homolog":   {d.homologacao, "NFS-e SEM VALIDADE JURÍDICA"},
+		"municipio": {d.municipioEmissor, "São Paulo - SP"},
+		"finalid":   {d.finalidade, "NFS-e regular"},
+		"dest":      {d.dest.nome, "FILIAL DESTINATÁRIA DA OPERAÇÃO LTDA"},
+		"destIBGE":  {d.dest.ibgeCep, "3304557 / 20040-002"},
+		"cst":       {d.cst + "/" + d.cClassTrib, "000/000001"},
+		"bc":        {moeda(d.vBCIBS), "R$ 9.265,00"},
+		"ibs":       {moeda(d.vIBSTot), "R$ 9,27"},
+		"cbs":       {moeda(d.vCBS), "R$ 83,39"},
+		"totNF":     {moeda(d.vTotNF), "R$ 9.742,65"},
+		"aliqUF":    {pct(d.pIBSUF), "0,10%"},
+		"totais":    {d.totais, "Federais: R$ 1.335,00 ; Estaduais: R$ 9,27 ; Municipais: R$ 200,00"},
+		"infCompl":  {strings.Join(d.infCompl, " | "), "Inf. Cont.: Pagamento por boleto em 15 dias. Contrato 45/2026. | Doc. Tec.: DT-2026-889 | Núm. Ped.: PC-4512 | Item Ped.: 10, 20"},
+	}
+	for k, v := range espera {
+		if v[0] != v[1] {
+			t.Errorf("%s = %q, esperado %q", k, v[0], v[1])
+		}
+	}
+	var b bytes.Buffer
+	if err := DANFSe(&b, &store.Documento{Modelo: "NFSE", XML: string(x), Status: "CANCELADA"}); err != nil {
+		t.Fatal(err)
+	}
+	if p := os.Getenv("DANFSE_IBS_SAIDA"); p != "" {
+		os.WriteFile(p, b.Bytes(), 0o644)
 	}
 }
