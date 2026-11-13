@@ -895,8 +895,9 @@ CFG.monitoramento = async el => {
   const [c, nsu, procs] = await Promise.all([api("/config"), api("/captura/status").catch(() => []), api("/procuradores").catch(() => [])]), cf = c.config;
   const opNFe = [60, 65, 80, 120, 180, 240], opNFSe = [10, 15, 30, 60, 120, 240];
   const ivNFe = opNFe.includes(cf.intervalo_distdfe_min) ? cf.intervalo_distdfe_min : 65, ivNFSe = opNFSe.includes(cf.intervalo_nfse_min) ? cf.intervalo_nfse_min : 30;
-  const ligado = cf.monitoramento_automatico !== false;
+  const ligado = cf.monitoramento_automatico !== false, semNFe = !!cf.nao_buscar_nfe, semNFSe = !!cf.nao_buscar_nfse;
   const cel = (id, serv, ativo) => {
+    if ((serv === "NFSE_ADN" ? semNFSe : semNFe)) return `<td class="doc-sub"><span class="st CANCELADA">Não buscar</span></td>`;
     if (!ativo) return `<td class="doc-sub">—</td>`;
     const n = nsu.find(x => x.empresa_id === id && x.servico === serv);
     if (!n) return `<td class="doc-sub">${ligado ? "na próxima verificação" : "aguardando"}</td>`;
@@ -909,10 +910,11 @@ CFG.monitoramento = async el => {
     <p class="muted">Com o monitoramento ligado, o programa verifica a cada minuto e busca as notas novas de cada empresa quando chega o horário definido abaixo — sem precisar clicar em Consultar. As notas novas aparecem nas telas em tempo real. O programa precisa estar em execução: ao fechar a janela ele continua em segundo plano, no ícone perto do relógio (opção em Configurações › Sistema). Para monitorar com o computador sem ninguém logado, instale como serviço do Windows.</p>
     <div class="form">
       <label>Monitoramento automático<select name="monitoramento_automatico"><option value="1">Ligado</option><option value="" ${ligado ? "" : "selected"}>Desligado</option></select></label>
-      <label>NF-e / NFC-e recebidas (SEFAZ)<select name="intervalo_distdfe_min">${opNFe.map(m => `<option value="${m}" ${m === ivNFe ? "selected" : ""}>A cada ${ROT_MIN(m)}${m === 65 ? " (recomendado)" : m === 60 ? " (mínimo da SEFAZ)" : m === 120 ? " (outro sistema usa o CNPJ)" : ""}</option>`).join("")}</select></label>
-      <label>NFS-e (Ambiente Nacional)<select name="intervalo_nfse_min">${opNFSe.map(m => `<option value="${m}" ${m === ivNFSe ? "selected" : ""}>A cada ${ROT_MIN(m)}${m === 30 ? " (recomendado)" : ""}</option>`).join("")}</select></label>
+      <label>NF-e / NFC-e recebidas (SEFAZ)<select name="intervalo_distdfe_min"><option value="0" ${semNFe ? "selected" : ""}>Não buscar NF-e / NFC-e</option>${opNFe.map(m => `<option value="${m}" ${m === ivNFe && !semNFe ? "selected" : ""}>A cada ${ROT_MIN(m)}${m === 65 ? " (recomendado)" : m === 60 ? " (mínimo da SEFAZ)" : m === 120 ? " (outro sistema usa o CNPJ)" : ""}</option>`).join("")}</select></label>
+      <label>NFS-e (Ambiente Nacional)<select name="intervalo_nfse_min"><option value="0" ${semNFSe ? "selected" : ""}>Não buscar NFS-e</option>${opNFSe.map(m => `<option value="${m}" ${m === ivNFSe && !semNFSe ? "selected" : ""}>A cada ${ROT_MIN(m)}${m === 30 ? " (recomendado)" : ""}</option>`).join("")}</select></label>
     </div>
-    <p class="muted" style="font-size:12.5px;margin:0">A SEFAZ só permite uma nova consulta do mesmo CNPJ 1 hora depois de responder "nenhum documento novo"; consultas antes disso geram bloqueio (656). Empresas com "Buscar notas recebidas automaticamente = Não" (Empresas › Editar) ficam fora do monitoramento.</p>
+    <p class="muted" style="font-size:12.5px;margin:0">A SEFAZ só permite uma nova consulta do mesmo CNPJ 1 hora depois de responder "nenhum documento novo"; consultas antes disso geram bloqueio (656). Empresas com "Buscar notas recebidas automaticamente = Não" (Empresas › Editar) ficam fora do monitoramento.
+      Se a empresa não usa um tipo de documento, escolha <b>"Não buscar"</b>: o programa deixa de consultar esse tipo na SEFAZ / Ambiente Nacional (inclusive pelo botão "Buscar agora"), evitando consultas desnecessárias e bloqueio por consumo indevido. As notas já baixadas continuam disponíveis.</p>
     <div class="acoes"><button class="btn primary">Salvar</button></div></form>
   <div class="card" style="margin-top:16px"><h3 style="margin-top:0">Situação por empresa</h3>
   ${emps.length ? `<div class="tbl"><table class="tab-mon"><thead><tr><th>Empresa</th><th>Automático</th><th>NF-e (SEFAZ)</th><th>NFS-e (Ambiente Nacional)</th></tr></thead><tbody>
@@ -923,8 +925,12 @@ CFG.monitoramento = async el => {
   ${procs.filter(p => p.nfe_autxml && p.uf).map(p => `<tr><td><b>${esc(p.nome)}</b><div class="doc-sub">Procurador · NF-e em que consta como autorizado (autXML)</div></td><td>${ligado ? `<span class="st AUTORIZADA">Sim</span>` : `<span class="st CANCELADA">Não</span>`}</td>${cel(-p.id, "NFE_AUTXML", true)}<td class="doc-sub">—</td></tr>`).join("")}
   </tbody></table></div>` : `<p class="muted">Nenhuma empresa cadastrada.</p>`}</div>`;
   $("#fmon").onsubmit = async ev => { ev.preventDefault(); const f = Object.fromEntries(new FormData(ev.target));
-    try { await api("/config", { method: "PUT", json: { monitoramento_automatico: !!f.monitoramento_automatico, intervalo_distdfe_min: +f.intervalo_distdfe_min, intervalo_nfse_min: +f.intervalo_nfse_min } });
-      toast(f.monitoramento_automatico ? `Monitoramento ligado · NF-e a cada ${ROT_MIN(+f.intervalo_distdfe_min)}, NFS-e a cada ${ROT_MIN(+f.intervalo_nfse_min)}` : "Monitoramento automático desligado", "var(--ok)"); mostrar("config", true); }
+    const iNFe = +f.intervalo_distdfe_min, iNFSe = +f.intervalo_nfse_min;
+    const corpo = { monitoramento_automatico: !!f.monitoramento_automatico, nao_buscar_nfe: !iNFe, nao_buscar_nfse: !iNFSe };
+    if (iNFe) corpo.intervalo_distdfe_min = iNFe; if (iNFSe) corpo.intervalo_nfse_min = iNFSe;
+    try { await api("/config", { method: "PUT", json: corpo });
+      const rot = (i, t) => i ? `${t} a cada ${ROT_MIN(i)}` : `${t}: não buscar`;
+      toast(f.monitoramento_automatico ? `Monitoramento ligado · ${rot(iNFe, "NF-e")}, ${rot(iNFSe, "NFS-e")}` : "Monitoramento automático desligado", "var(--ok)"); mostrar("config", true); }
     catch (e) { toast(esc(e.message), "var(--er)"); } };
 };
 

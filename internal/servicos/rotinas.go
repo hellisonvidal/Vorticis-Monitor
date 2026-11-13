@@ -96,6 +96,9 @@ type ResultadoCaptura struct {
 //     sistema está consultando o CNPJ: o intervalo passa a ser no mínimo 2 h,
 //     com uma folga aleatória, para não disputar a mesma janela.
 func (m *Monitor) CapturarDistDFe(ctx context.Context, empresaID int64, forcar bool) (*ResultadoCaptura, error) {
+	if m.Cfg.NaoBuscarNFe {
+		return &ResultadoCaptura{EmpresaID: empresaID, Ignorado: true, Motivo: "Busca de NF-e/NFC-e desativada em Configurações › Monitoramento"}, nil
+	}
 	return m.capturarDist(ctx, alvoDist{
 		chaveNSU: empresaID, servico: "NFE_DISTDFE",
 		abrir: func() (*sefaz.Cliente, string, string, error) {
@@ -255,6 +258,9 @@ func (m *Monitor) capturarDist(ctx context.Context, a alvoDist, forcar bool) (*R
 // em que ele consta como autorizado a obter o XML (grupo autXML). Só importa
 // documentos de empresas cadastradas no monitor (emitente ou destinatário).
 func (m *Monitor) CapturarNFeProcurador(ctx context.Context, procID int64, forcar bool) (*ResultadoCaptura, error) {
+	if m.Cfg.NaoBuscarNFe {
+		return &ResultadoCaptura{EmpresaID: -procID, Ignorado: true, Motivo: "Busca de NF-e/NFC-e desativada em Configurações › Monitoramento"}, nil
+	}
 	p, err := m.Store.ObterProcurador(procID)
 	if err != nil {
 		return nil, fmt.Errorf("procurador %d não encontrado", procID)
@@ -301,6 +307,9 @@ func (m *Monitor) CapturarNFeProcurador(ctx context.Context, procID int64, forca
 // em cnpjConsulta. Sem documentos novos, consulta de novo após o intervalo
 // configurado; em HTTP 429 respeita o Retry-After.
 func (m *Monitor) CapturarNFSe(ctx context.Context, empresaID int64, forcar bool) (*ResultadoCaptura, error) {
+	if m.Cfg.NaoBuscarNFSe {
+		return &ResultadoCaptura{EmpresaID: empresaID, Ignorado: true, Motivo: "Busca de NFS-e desativada em Configurações › Monitoramento"}, nil
+	}
 	n := m.Store.ObterNSU(empresaID, "NFSE_ADN")
 	if n.UltNSU == "" || strings.Trim(n.UltNSU, "0") == "" {
 		n.UltNSU = "0"
@@ -576,12 +585,12 @@ func (m *Monitor) executarCiclo(ctx context.Context, ciclo int) {
 	if m.Cfg.MonitoramentoAutomatico {
 		emps, _ := m.Store.ListarEmpresas()
 		for _, e := range emps {
-			if e.Ativo && e.CapturaAutomatica && e.TemCertificado {
+			if !m.Cfg.NaoBuscarNFe && e.Ativo && e.CapturaAutomatica && e.TemCertificado {
 				if _, err := m.CapturarDistDFe(ctx, e.ID, false); err != nil {
 					log.Printf("captura DF-e %s: %v", e.CNPJ, err)
 				}
 			}
-			if e.Ativo && e.CapturaAutomatica && (e.TemCertificado || (e.NFSeModo == "PROCURACAO" && e.NFSeProcuradorID > 0)) {
+			if !m.Cfg.NaoBuscarNFSe && e.Ativo && e.CapturaAutomatica && (e.TemCertificado || (e.NFSeModo == "PROCURACAO" && e.NFSeProcuradorID > 0)) {
 				if _, err := m.CapturarNFSe(ctx, e.ID, false); err != nil {
 					log.Printf("captura NFS-e %s: %v", e.CNPJ, err)
 				}
@@ -589,7 +598,7 @@ func (m *Monitor) executarCiclo(ctx context.Context, ciclo int) {
 		}
 		procs, _ := m.Store.ListarProcuradores()
 		for _, p := range procs {
-			if p.NFeAutXML && p.UF != "" {
+			if !m.Cfg.NaoBuscarNFe && p.NFeAutXML && p.UF != "" {
 				if _, err := m.CapturarNFeProcurador(ctx, p.ID, false); err != nil {
 					log.Printf("captura NF-e autXML do procurador %s: %v", p.Nome, err)
 				}

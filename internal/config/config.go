@@ -26,6 +26,10 @@ type Config struct {
 	// Monitoramento automático: liga/desliga as buscas em segundo plano e define
 	// o intervalo da NF-e (SEFAZ, mínimo 60 min) e da NFS-e (ADN, mínimo 10 min).
 	MonitoramentoAutomatico bool `json:"monitoramento_automatico"`
+	// Não buscar um tipo de documento (nem automático nem "Buscar agora"), para quem
+	// não usa NF-e/NFC-e ou NFS-e e quer evitar consultas e bloqueio por consumo indevido.
+	NaoBuscarNFe  bool `json:"nao_buscar_nfe,omitempty"`
+	NaoBuscarNFSe bool `json:"nao_buscar_nfse,omitempty"`
 	// SegundoPlano: fechar a janela mantém o programa na bandeja do Windows (perto do relógio).
 	SegundoPlano            bool    `json:"segundo_plano"`
 	IntervaloNFSeMin        int     `json:"intervalo_nfse_min"`
