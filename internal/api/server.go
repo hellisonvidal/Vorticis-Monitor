@@ -25,7 +25,7 @@ import (
 	"vorticis.com.br/monitor/internal/store"
 )
 
-const Versao = "1.10.6"
+const Versao = "1.11.0"
 
 type Server struct {
 	M      *servicos.Monitor
